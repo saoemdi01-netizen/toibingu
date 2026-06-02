@@ -250,24 +250,25 @@ const NeonWaveCanvas = () => {
       waves.forEach(w => {
         w.phase += w.speed;
 
-        // Glow halo pass (thick, transparent)
+        // Glow halo pass (extremely thick, soft fog glow)
         ctx.beginPath();
-        ctx.lineWidth   = w.width * 5;
+        ctx.lineWidth   = w.width * 16;
         ctx.strokeStyle = w.color;
-        ctx.globalAlpha = w.opacity * 0.12;
-        ctx.shadowBlur  = 0;
+        ctx.globalAlpha = w.opacity * 0.08;
+        ctx.shadowBlur  = 35;
+        ctx.shadowColor = w.color;
         for (let x = 0; x <= canvas.width; x += 4) {
           const y = centerY + Math.sin(x * w.frequency + w.phase) * w.amplitude;
           x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Core bright line pass
+        // Core bright line pass (softened and highly blurred)
         ctx.beginPath();
-        ctx.lineWidth   = w.width;
+        ctx.lineWidth   = w.width * 1.2;
         ctx.strokeStyle = w.color;
-        ctx.globalAlpha = w.opacity;
-        ctx.shadowBlur  = 22;
+        ctx.globalAlpha = w.opacity * 0.32; // Lower opacity for dreamy mist
+        ctx.shadowBlur  = 75; // Giant soft blur
         ctx.shadowColor = w.color;
         for (let x = 0; x <= canvas.width; x += 2) {
           const y = centerY + Math.sin(x * w.frequency + w.phase) * w.amplitude;
