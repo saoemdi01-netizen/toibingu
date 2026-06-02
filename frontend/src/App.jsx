@@ -372,7 +372,7 @@ export default function App() {
         // Player exists (returning from study module) — resume
         try {
           ytPlayerRef.current.unMute();
-          ytPlayerRef.current.setVolume(5);
+          ytPlayerRef.current.setVolume(25);
           ytPlayerRef.current.playVideo();
           setIsMusicPlaying(true);
         } catch(e) {}
@@ -396,7 +396,7 @@ export default function App() {
         events: {
           onReady: (event) => {
             ytReadyRef.current = true;
-            event.target.setVolume(5);
+            event.target.setVolume(25);
             event.target.playVideo();
             // Unmute khi click vào ô tài khoản (login) hoặc bất kỳ tương tác nào (module picker)
           },
@@ -428,7 +428,7 @@ export default function App() {
     if (!ytPlayerRef.current || !ytReadyRef.current) return;
     try {
       ytPlayerRef.current.unMute();
-      ytPlayerRef.current.setVolume(5);
+      ytPlayerRef.current.setVolume(25);
       ytPlayerRef.current.playVideo();
       setIsMusicPlaying(true);
     } catch(e) {}
@@ -441,7 +441,7 @@ export default function App() {
       setIsMusicPlaying(false);
     } else {
       ytPlayerRef.current.unMute();
-      ytPlayerRef.current.setVolume(5);
+      ytPlayerRef.current.setVolume(25);
       ytPlayerRef.current.playVideo();
       setIsMusicPlaying(true);
     }
