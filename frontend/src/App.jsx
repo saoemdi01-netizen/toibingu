@@ -853,7 +853,7 @@ export default function App() {
     return (
       <div className="app-container" style={{ justifyContent: 'center' }}>
         {/* Floating User Indicator & Logout button */}
-        <div style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '0.6rem 1.2rem', borderRadius: '16px', backdropFilter: 'blur(10px)', boxShadow: '0 4px 15px rgba(0,0,0,0.2)' }}>
+        <div className="home-user-indicator" style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '0.6rem 1.2rem', borderRadius: '16px', backdropFilter: 'blur(10px)', boxShadow: '0 4px 15px rgba(0,0,0,0.2)' }}>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tài khoản</div>
             <div style={{ fontSize: '0.9rem', fontWeight: '700', color: 'white' }}>👤 {currentUser}</div>
