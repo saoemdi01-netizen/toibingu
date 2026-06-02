@@ -1060,7 +1060,7 @@ export default function App() {
       <div className="main-layout">
         
         {/* Left Side: Sidebar navigation tab buttons */}
-        <aside className="sidebar-panel" style={{ width: '320px', minWidth: '320px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+        <aside className="sidebar-panel responsive-sidebar" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
           
           <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '-0.4rem' }}>
             Menu điều hướng

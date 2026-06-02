@@ -866,3 +866,90 @@ button:active,
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* --- Responsive Layout adjustments for Mobile & iPad --- */
+.responsive-sidebar {
+  width: 320px;
+  min-width: 320px;
+  flex-shrink: 0;
+  transition: var(--transition-smooth);
+}
+
+@media (max-width: 992px) {
+  .responsive-sidebar {
+    width: 280px;
+    min-width: 280px;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-layout {
+    flex-direction: column;
+    height: auto;
+    overflow-y: auto;
+  }
+  
+  .responsive-sidebar {
+    width: 100%;
+    min-width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--glass-border);
+    padding: 1.2rem !important;
+  }
+  
+  .content-area {
+    width: 100%;
+    min-height: calc(100vh - 350px);
+    padding: 1rem !important;
+    overflow: visible;
+  }
+  
+  .flashcard-player {
+    height: auto;
+    min-height: 520px;
+  }
+  
+  .card-face {
+    padding: 1.2rem 1.5rem;
+  }
+  
+  .card-word {
+    font-size: 1.8rem;
+  }
+  
+  .app-header {
+    padding: 1rem 1.2rem;
+  }
+  
+  .logo {
+    font-size: 1.2rem;
+  }
+  
+  .header-controls {
+    gap: 0.6rem;
+  }
+  
+  .module-selector-btn-large {
+    padding: 0.5rem 1.1rem;
+    font-size: 0.85rem;
+  }
+  
+  .module-grid {
+    grid-template-columns: 1fr;
+    max-width: 340px;
+  }
+  
+  .module-picker-title {
+    font-size: 1.8rem;
+  }
+  
+  .worten-large-setup-card {
+    padding: 1.5rem 1.2rem !important;
+    border-radius: 16px !important;
+  }
+  
+  .card-example-box {
+    max-width: 100%;
+  }
+}
+
+
