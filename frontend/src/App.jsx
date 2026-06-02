@@ -1480,8 +1480,7 @@ export default function App() {
             }}>
               
               {/* Header with Search and Quick Filters */}
-              <div style={{
-                padding: '2rem',
+              <div className="lib-header-container" style={{
                 background: 'var(--bg-tertiary)',
                 borderBottom: '1px solid var(--glass-border)',
                 display: 'flex',
@@ -1516,7 +1515,7 @@ export default function App() {
                 </div>
 
                 {/* Search input and status filters */}
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                <div className="lib-filter-row" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                   
                   {/* Modern Search Bar */}
                   <div style={{ flex: 1, position: 'relative' }}>

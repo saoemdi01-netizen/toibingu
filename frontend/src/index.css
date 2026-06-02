@@ -874,6 +874,16 @@ button:active,
   transition: var(--transition-smooth);
 }
 
+.lib-header-container {
+  padding: 2rem;
+}
+
+.lib-filter-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
 @media (max-width: 992px) {
   .responsive-sidebar {
     width: 280px;
@@ -1052,6 +1062,38 @@ button:active,
   }
   
   /* Bibliothek styling on mobile */
+  .lib-header-container {
+    padding: 1rem !important;
+    gap: 0.5rem !important;
+  }
+  
+  .lib-header-container h2 {
+    font-size: 1.25rem !important;
+  }
+  
+  .lib-header-container p {
+    font-size: 0.75rem !important;
+    margin-top: 0.2rem !important;
+  }
+  
+  .lib-filter-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.6rem !important;
+  }
+  
+  .lib-filter-row > div {
+    width: 100% !important;
+  }
+  
+  .alphabet-filter {
+    white-space: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 0.4rem !important;
+    padding-bottom: 0.3rem !important;
+  }
+
   .bibliothek-filters {
     padding: 0.75rem 1rem !important;
     gap: 0.6rem !important;
