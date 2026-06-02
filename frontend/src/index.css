@@ -1086,17 +1086,17 @@ button:active,
   
   /* Bibliothek styling on mobile */
   .lib-header-container {
-    padding: 1rem !important;
-    gap: 0.5rem !important;
+    padding: 0.6rem 0.8rem !important;
+    gap: 0.3rem !important;
   }
   
   .lib-header-container h2 {
-    font-size: 1.25rem !important;
+    font-size: 1.05rem !important;
   }
   
   .lib-header-container p {
-    font-size: 0.75rem !important;
-    margin-top: 0.2rem !important;
+    font-size: 0.68rem !important;
+    margin-top: 0.1rem !important;
   }
   
   .lib-filter-row {

@@ -1491,10 +1491,12 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', color: 'white' }}>
-                      Thư viện từ vựng (Bibliothek)
+                      {selectedModule === 2 ? "Thư viện lâm sàng (Klinik)" : "Thư viện từ vựng (Bibliothek)"}
                     </h2>
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                      Duyệt từ gốc cực kỳ tinh giản. Nhấp để tra cứu chi tiết dạng Flashcard (Esc để đóng modal).
+                      {selectedModule === 2 
+                        ? "Duyệt các ca bệnh lâm sàng M2 tinh giản. Nhấp để xem chi tiết dạng Flashcard." 
+                        : "Duyệt từ gốc cực kỳ tinh giản. Nhấp để tra cứu chi tiết dạng Flashcard."}
                     </p>
                   </div>
                   <button 
@@ -1522,7 +1524,9 @@ export default function App() {
                     <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}>🔍</span>
                     <input 
                       type="text" 
-                      placeholder="Tìm kiếm nhanh bằng từ tiếng Đức hoặc nghĩa tiếng Việt..."
+                      placeholder={selectedModule === 2 
+                        ? "Tìm kiếm nhanh ca bệnh, bệnh học hoặc nghĩa..." 
+                        : "Tìm kiếm nhanh bằng từ tiếng Đức hoặc nghĩa tiếng Việt..."}
                       className="form-input" 
                       value={libSearchQuery}
                       onChange={(e) => setLibSearchQuery(e.target.value)}
