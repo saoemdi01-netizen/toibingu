@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import FlashcardPlayer from './components/FlashcardPlayer';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://ankicard-backend.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
@@ -216,6 +216,95 @@ const playGentleClickSound = () => {
 };
 
 
+// ── Neon Wave Canvas (login + module picker background) ──────────────────────
+const NeonWaveCanvas = () => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const resize = () => {
+      canvas.width  = window.innerWidth;
+      canvas.height = 380;
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const waves = [
+      { color: '#00f5ff', amplitude: 38, frequency: 0.0075, speed:  0.018, phase: 0,    width: 2,   opacity: 0.9  },
+      { color: '#ff00e5', amplitude: 26, frequency: 0.011,  speed: -0.024, phase: 1.3,  width: 1.8, opacity: 0.8  },
+      { color: '#39ff14', amplitude: 48, frequency: 0.0055, speed:  0.013, phase: 2.5,  width: 2.2, opacity: 0.75 },
+      { color: '#ff2d6f', amplitude: 20, frequency: 0.015,  speed: -0.030, phase: 0.7,  width: 1.5, opacity: 0.7  },
+      { color: '#b44fff', amplitude: 55, frequency: 0.0045, speed:  0.009, phase: 3.8,  width: 2.5, opacity: 0.65 },
+      { color: '#ffae00', amplitude: 16, frequency: 0.019,  speed: -0.015, phase: 1.9,  width: 1.5, opacity: 0.6  },
+    ];
+
+    const centerY = 190;
+    let animId;
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      waves.forEach(w => {
+        w.phase += w.speed;
+
+        // Glow halo pass (thick, transparent)
+        ctx.beginPath();
+        ctx.lineWidth   = w.width * 5;
+        ctx.strokeStyle = w.color;
+        ctx.globalAlpha = w.opacity * 0.12;
+        ctx.shadowBlur  = 0;
+        for (let x = 0; x <= canvas.width; x += 4) {
+          const y = centerY + Math.sin(x * w.frequency + w.phase) * w.amplitude;
+          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+
+        // Core bright line pass
+        ctx.beginPath();
+        ctx.lineWidth   = w.width;
+        ctx.strokeStyle = w.color;
+        ctx.globalAlpha = w.opacity;
+        ctx.shadowBlur  = 22;
+        ctx.shadowColor = w.color;
+        for (let x = 0; x <= canvas.width; x += 2) {
+          const y = centerY + Math.sin(x * w.frequency + w.phase) * w.amplitude;
+          x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      });
+
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur  = 0;
+      animId = requestAnimationFrame(draw);
+    };
+
+    draw();
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'fixed',
+        top: '50%',
+        left: 0,
+        transform: 'translateY(-50%)',
+        width: '100%',
+        zIndex: 1,
+        pointerEvents: 'none',
+      }}
+    />
+  );
+};
+
+
 export default function App() {
   const [selectedModule, setSelectedModule] = useState(null); // null = 2-square picker
 
@@ -247,12 +336,22 @@ export default function App() {
   // Desktop check for music
   const isDesktop = typeof window !== 'undefined' && window.innerWidth > 1024 && !/Mobi|Android|iPhone|iPad|Tablet/i.test(navigator.userAgent);
 
-  // Load YouTube IFrame API and init player for desktop login
+  // Nhạc chạy ở login + module picker, tắt khi vào học phần, bật lại khi back ra
+  const musicShouldPlay = isDesktop && selectedModule === null;
+
   useEffect(() => {
     if (!isDesktop) return;
-    if (isLoggedIn) return;
 
-    // Load YT script if not loaded
+    if (!musicShouldPlay) {
+      // Vào học phần — tạm dừng nhạc
+      if (ytPlayerRef.current && ytReadyRef.current) {
+        try { ytPlayerRef.current.pauseVideo(); } catch(e) {}
+        setIsMusicPlaying(false);
+      }
+      return;
+    }
+
+    // Load YT script nếu chưa có
     if (!window.YT && !document.getElementById('yt-iframe-api')) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
@@ -261,57 +360,52 @@ export default function App() {
     }
 
     const initPlayer = () => {
-      if (ytPlayerRef.current) return;
-      const div = document.getElementById('yt-music-player');
-      if (!div) return;
+      // Ensure the player container exists in body (not in React tree, so it never unmounts)
+      let div = document.getElementById('yt-music-player');
+      if (!div) {
+        div = document.createElement('div');
+        div.id = 'yt-music-player';
+        div.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+        document.body.appendChild(div);
+      }
+      if (ytPlayerRef.current) {
+        // Player exists (returning from study module) — resume
+        try {
+          ytPlayerRef.current.unMute();
+          ytPlayerRef.current.setVolume(5);
+          ytPlayerRef.current.playVideo();
+          setIsMusicPlaying(true);
+        } catch(e) {}
+        return;
+      }
       ytPlayerRef.current = new window.YT.Player('yt-music-player', {
         height: '1',
         width: '1',
         videoId: 'SlQR9iu09bQ',
         playerVars: {
           autoplay: 1,
-          start: 25,
+          start: 107,
           controls: 0,
           disablekb: 1,
           fs: 0,
           modestbranding: 1,
           rel: 0,
           iv_load_policy: 3,
-          mute: 1, // Start muted so browser allows autoplay
+          mute: 1,
         },
         events: {
           onReady: (event) => {
             ytReadyRef.current = true;
-            event.target.setVolume(30);
+            event.target.setVolume(5);
             event.target.playVideo();
-            // Unmute on first user interaction (mousemove/click/keydown)
-            const unmuteOnInteraction = () => {
-              if (ytPlayerRef.current && ytReadyRef.current) {
-                try {
-                  ytPlayerRef.current.unMute();
-                  ytPlayerRef.current.setVolume(30);
-                  ytPlayerRef.current.playVideo();
-                  setIsMusicPlaying(true);
-                } catch(e) {}
-              }
-              document.removeEventListener('mousemove', unmuteOnInteraction);
-              document.removeEventListener('click', unmuteOnInteraction);
-              document.removeEventListener('keydown', unmuteOnInteraction);
-              document.removeEventListener('scroll', unmuteOnInteraction);
-            };
-            document.addEventListener('mousemove', unmuteOnInteraction, { once: false });
-            document.addEventListener('click', unmuteOnInteraction, { once: true });
-            document.addEventListener('keydown', unmuteOnInteraction, { once: true });
-            document.addEventListener('scroll', unmuteOnInteraction, { once: true });
+            // Unmute khi click vào ô tài khoản (login) hoặc bất kỳ tương tác nào (module picker)
           },
           onStateChange: (event) => {
-            // YT.PlayerState.ENDED = 0
             if (event.data === 0) {
-              // Loop: seek to 25s and play again
               event.target.seekTo(25, true);
               event.target.playVideo();
             }
-            if (event.data === 1) setIsMusicPlaying(true);
+            if (event.data === 1 && !ytPlayerRef.current.isMuted()) setIsMusicPlaying(true);
             if (event.data === 2) setIsMusicPlaying(false);
           },
         },
@@ -327,17 +421,18 @@ export default function App() {
         initPlayer();
       };
     }
+  }, [musicShouldPlay, isDesktop]);
 
-    return () => {
-      // Destroy player when logged in
-      if (ytPlayerRef.current && typeof ytPlayerRef.current.destroy === 'function') {
-        try { ytPlayerRef.current.destroy(); } catch(e) {}
-        ytPlayerRef.current = null;
-        ytReadyRef.current = false;
-        setIsMusicPlaying(false);
-      }
-    };
-  }, [isLoggedIn, isDesktop]);
+  // Gọi khi user click vào ô nhập tài khoản — browser cho phép phát tiếng
+  const startMusicOnInputFocus = () => {
+    if (!ytPlayerRef.current || !ytReadyRef.current) return;
+    try {
+      ytPlayerRef.current.unMute();
+      ytPlayerRef.current.setVolume(5);
+      ytPlayerRef.current.playVideo();
+      setIsMusicPlaying(true);
+    } catch(e) {}
+  };
 
   const toggleMusic = () => {
     if (!ytPlayerRef.current || !ytReadyRef.current) return;
@@ -346,7 +441,7 @@ export default function App() {
       setIsMusicPlaying(false);
     } else {
       ytPlayerRef.current.unMute();
-      ytPlayerRef.current.setVolume(30);
+      ytPlayerRef.current.setVolume(5);
       ytPlayerRef.current.playVideo();
       setIsMusicPlaying(true);
     }
@@ -893,12 +988,7 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center' }}>
-        {/* Hidden YouTube music player for desktop */}
-        {isDesktop && (
-          <div ref={musicContainerRef} style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', opacity: 0, pointerEvents: 'none', top: '-9999px', left: '-9999px' }}>
-            <div id="yt-music-player"></div>
-          </div>
-        )}
+        {/* YT player div lives in document.body (created by useEffect) — not in React tree */}
         {/* Music toggle button - desktop only */}
         {isDesktop && (
           <button
@@ -932,19 +1022,46 @@ export default function App() {
             {isMusicPlaying ? '🎵' : '🔇'}
           </button>
         )}
-        <div style={{
+
+        {/* === BACKGROUND ANIMATIONS === */}
+        <div className="login-aurora" />
+        <div className="login-particles">
+          {[...Array(12)].map((_, i) => <div key={i} className="login-particle" />)}
+        </div>
+        <div className="login-led-left" />
+        <div className="login-led-right" />
+        {/* Neon wave canvas behind card */}
+        <NeonWaveCanvas />
+        {/* Wave SVG bottom */}
+        <div className="login-waves">
+          <svg className="login-wave-1" viewBox="0 0 1440 130" preserveAspectRatio="none">
+            <path d="M0,64 C240,110 480,20 720,64 C960,110 1200,20 1440,64 L1440,130 L0,130 Z" fill="rgba(99,102,241,0.18)" />
+            <path d="M1440,64 C1200,110 960,20 720,64 C480,110 240,20 0,64 L0,130 L1440,130 Z" fill="rgba(99,102,241,0.18)" />
+          </svg>
+          <svg className="login-wave-2" viewBox="0 0 1440 130" preserveAspectRatio="none">
+            <path d="M0,80 C200,30 400,110 600,70 C800,30 1000,100 1200,60 C1300,40 1380,80 1440,70 L1440,130 L0,130 Z" fill="rgba(168,85,247,0.13)" />
+            <path d="M1440,80 C1240,30 1040,110 840,70 C640,30 440,100 240,60 C140,40 60,80 0,70 L0,130 L1440,130 Z" fill="rgba(168,85,247,0.13)" />
+          </svg>
+          <svg className="login-wave-3" viewBox="0 0 1440 130" preserveAspectRatio="none">
+            <path d="M0,50 C360,130 720,0 1080,80 C1260,110 1380,40 1440,60 L1440,130 L0,130 Z" fill="rgba(59,130,246,0.1)" />
+            <path d="M1440,50 C1080,130 720,0 360,80 C180,110 60,40 0,60 L0,130 L1440,130 Z" fill="rgba(59,130,246,0.1)" />
+          </svg>
+        </div>
+
+        <div className="login-card-glow" style={{
           width: '100%',
           maxWidth: '400px',
           background: 'var(--glass-bg)',
           border: '1px solid var(--glass-border)',
           borderRadius: '24px',
           padding: '3rem 2.5rem',
-          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
           display: 'flex',
           flexDirection: 'column',
           gap: '1.8rem',
           textAlign: 'center',
-          animation: 'fadeIn 0.3s ease-out'
+          position: 'relative',
+          zIndex: 2,
+          animation: 'fadeIn 0.3s ease-out',
         }}>
           <div>
             <svg width="72" height="48" viewBox="0 0 3 2" style={{ marginBottom: '1.2rem', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 0 15px rgba(0,0,0,0.5)', display: 'inline-block' }}>
@@ -965,6 +1082,8 @@ export default function App() {
                 value={usernameInput}
                 onChange={(e) => setUsernameInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                onFocus={startMusicOnInputFocus}
+                onClick={startMusicOnInputFocus}
                 style={{ padding: '0.8rem 1rem', borderRadius: '12px' }}
               />
             </div>
@@ -1006,8 +1125,58 @@ export default function App() {
   if (selectedModule === null) {
     return (
       <div className="app-container" style={{ justifyContent: 'center' }}>
-        {/* Floating User Indicator & Logout button */}
-        <div className="home-user-indicator" style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '0.6rem 1.2rem', borderRadius: '16px', backdropFilter: 'blur(10px)', boxShadow: '0 4px 15px rgba(0,0,0,0.2)' }}>
+
+        {/* YT player div lives in document.body (created by useEffect) — not in React tree */}
+
+        {/* Music toggle button — bottom-right, same as login */}
+        {isDesktop && (
+          <button
+            onClick={toggleMusic}
+            title={isMusicPlaying ? 'Tắt nhạc' : 'Bật nhạc'}
+            style={{
+              position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 9999,
+              width: '52px', height: '52px', borderRadius: '50%',
+              border: '1.5px solid rgba(255,255,255,0.25)',
+              background: isMusicPlaying
+                ? 'linear-gradient(135deg, rgba(99,102,241,0.85), rgba(168,85,247,0.85))'
+                : 'rgba(30,30,50,0.75)',
+              backdropFilter: 'blur(12px)', color: 'white', fontSize: '1.4rem',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: isMusicPlaying
+                ? '0 0 18px rgba(168,85,247,0.5), 0 4px 15px rgba(0,0,0,0.3)'
+                : '0 4px 15px rgba(0,0,0,0.3)',
+              transition: 'all 0.3s ease',
+            }}
+          >
+            {isMusicPlaying ? '🎵' : '🔇'}
+          </button>
+        )}
+
+        {/* === BACKGROUND ANIMATIONS === */}
+        <div className="login-aurora" />
+        <div className="login-particles">
+          {[...Array(12)].map((_, i) => <div key={i} className="login-particle" />)}
+        </div>
+        <div className="login-led-left" />
+        <div className="login-led-right" />
+        <NeonWaveCanvas />
+        <div className="login-waves">
+          <svg className="login-wave-1" viewBox="0 0 1440 130" preserveAspectRatio="none">
+            <path d="M0,64 C240,110 480,20 720,64 C960,110 1200,20 1440,64 L1440,130 L0,130 Z" fill="rgba(99,102,241,0.18)" />
+            <path d="M1440,64 C1200,110 960,20 720,64 C480,110 240,20 0,64 L0,130 L1440,130 Z" fill="rgba(99,102,241,0.18)" />
+          </svg>
+          <svg className="login-wave-2" viewBox="0 0 1440 130" preserveAspectRatio="none">
+            <path d="M0,80 C200,30 400,110 600,70 C800,30 1000,100 1200,60 C1300,40 1380,80 1440,70 L1440,130 L0,130 Z" fill="rgba(168,85,247,0.13)" />
+            <path d="M1440,80 C1240,30 1040,110 840,70 C640,30 440,100 240,60 C140,40 60,80 0,70 L0,130 L1440,130 Z" fill="rgba(168,85,247,0.13)" />
+          </svg>
+          <svg className="login-wave-3" viewBox="0 0 1440 130" preserveAspectRatio="none">
+            <path d="M0,50 C360,130 720,0 1080,80 C1260,110 1380,40 1440,60 L1440,130 L0,130 Z" fill="rgba(59,130,246,0.1)" />
+            <path d="M1440,50 C1080,130 720,0 360,80 C180,110 60,40 0,60 L0,130 L1440,130 Z" fill="rgba(59,130,246,0.1)" />
+          </svg>
+        </div>
+
+        {/* User indicator — top RIGHT */}
+        <div className="home-user-indicator" style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '0.6rem 1.2rem', borderRadius: '16px', backdropFilter: 'blur(10px)', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'fixed', top: '1.2rem', right: '1.5rem', zIndex: 10 }}>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tài khoản</div>
             <div style={{ fontSize: '0.9rem', fontWeight: '700', color: 'white' }}>👤 {currentUser}</div>
@@ -1020,7 +1189,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="module-picker-overlay">
+        <div className="module-picker-overlay" style={{ position: 'relative', zIndex: 2 }}>
           <svg width="72" height="48" viewBox="0 0 3 2" style={{ marginBottom: '1.5rem', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 0 20px rgba(0,0,0,0.5)', cursor: 'pointer', transition: 'transform 0.2s', flexShrink: 0 }} onClick={playGentleClickSound} className="logo-german-flag-home">
             <rect y="0" width="3" height="0.667" fill="#000000"/>
             <rect y="0.667" width="3" height="0.667" fill="#DD0000"/>
@@ -1200,7 +1369,7 @@ export default function App() {
               (Đăng xuất)
             </button>
           </div>
-          
+
           <button 
             onClick={() => setSelectedModule(null)}
             className="module-selector-btn-large"
