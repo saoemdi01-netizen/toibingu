@@ -35989,5 +35989,95 @@
     "category": "Gynäkologie",
     "isLearned": false,
     "module": 2
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_0",
+    "category": "General",
+    "word": "analogen",
+    "translation": "tương tự / tương tự hóa (tính từ)",
+    "example": "Im analogen Zeitalter gab es noch keine Smartphones.",
+    "module": 1,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_1",
+    "category": "General",
+    "word": "anstreben",
+    "translation": "phấn đấu đạt được / hướng tới (động từ)",
+    "example": "Wir streben eine friedliche Lösung des Konflikts an.",
+    "module": 2,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_2",
+    "category": "General",
+    "word": "die Ausdauer",
+    "translation": "sự bền bỉ / kiên trì chịu đựng (danh từ)",
+    "example": "Für Marathonlauf benötigt man eine enorme Ausdauer.",
+    "module": 3,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_3",
+    "category": "General",
+    "word": "beeinträchtigen",
+    "translation": "gây ảnh hưởng xấu / làm giảm sút (động từ)",
+    "example": "Schlafmangel beeinträchtigt die Konzentrationsfähigkeit.",
+    "module": 4,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_4",
+    "category": "General",
+    "word": "befürworten",
+    "translation": "ủng hộ / tán thành ý kiến (động từ)",
+    "example": "Viele Experten befürworten eine Reform des Steuersystems.",
+    "module": 5,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_5",
+    "category": "General",
+    "word": "bewältigen",
+    "translation": "khắc phục / giải quyết khó khăn (động từ)",
+    "example": "Die Krise lässt sich nur gemeinsam bewältigen.",
+    "module": 1,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_6",
+    "category": "General",
+    "word": "konzipieren",
+    "translation": "thiết kế / lên ý tưởng phác thảo (động từ)",
+    "example": "Die Ingenieure konzipieren ein neues Elektroauto.",
+    "module": 2,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_7",
+    "category": "General",
+    "word": "die Kooperation",
+    "translation": "sự hợp tác liên kết cùng có lợi (danh từ)",
+    "example": "Eine enge Kooperation zwischen den Abteilungen ist ratsam.",
+    "module": 3,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_8",
+    "category": "General",
+    "word": "subjektiv",
+    "translation": "mang tính chủ quan cá nhân (tính từ)",
+    "example": "Schmerzempfinden ist ein sehr subjektives Gefühl.",
+    "module": 4,
+    "isLearned": false
+  },
+  {
+    "_id": "fallback_id_1780410192059_new_9",
+    "category": "General",
+    "word": "vernachlässigen",
+    "translation": "bỏ bê / lơ là trách nhiệm (động từ)",
+    "example": "Eltern sollten ihre Pflichten nicht vernachlässigen.",
+    "module": 5,
+    "isLearned": false
   }
 ]
