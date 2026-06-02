@@ -253,7 +253,7 @@ export default function App() {
     if (isLoggedIn) return;
 
     // Load YT script if not loaded
-    if (!window.YT) {
+    if (!window.YT && !document.getElementById('yt-iframe-api')) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
       tag.id = 'yt-iframe-api';
@@ -277,14 +277,32 @@ export default function App() {
           modestbranding: 1,
           rel: 0,
           iv_load_policy: 3,
-          mute: 0,
+          mute: 1, // Start muted so browser allows autoplay
         },
         events: {
           onReady: (event) => {
             ytReadyRef.current = true;
             event.target.setVolume(30);
             event.target.playVideo();
-            setIsMusicPlaying(true);
+            // Unmute on first user interaction (mousemove/click/keydown)
+            const unmuteOnInteraction = () => {
+              if (ytPlayerRef.current && ytReadyRef.current) {
+                try {
+                  ytPlayerRef.current.unMute();
+                  ytPlayerRef.current.setVolume(30);
+                  ytPlayerRef.current.playVideo();
+                  setIsMusicPlaying(true);
+                } catch(e) {}
+              }
+              document.removeEventListener('mousemove', unmuteOnInteraction);
+              document.removeEventListener('click', unmuteOnInteraction);
+              document.removeEventListener('keydown', unmuteOnInteraction);
+              document.removeEventListener('scroll', unmuteOnInteraction);
+            };
+            document.addEventListener('mousemove', unmuteOnInteraction, { once: false });
+            document.addEventListener('click', unmuteOnInteraction, { once: true });
+            document.addEventListener('keydown', unmuteOnInteraction, { once: true });
+            document.addEventListener('scroll', unmuteOnInteraction, { once: true });
           },
           onStateChange: (event) => {
             // YT.PlayerState.ENDED = 0
@@ -303,7 +321,11 @@ export default function App() {
     if (window.YT && window.YT.Player) {
       initPlayer();
     } else {
-      window.onYouTubeIframeAPIReady = initPlayer;
+      const prevReady = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        if (prevReady) prevReady();
+        initPlayer();
+      };
     }
 
     return () => {
@@ -323,6 +345,8 @@ export default function App() {
       ytPlayerRef.current.pauseVideo();
       setIsMusicPlaying(false);
     } else {
+      ytPlayerRef.current.unMute();
+      ytPlayerRef.current.setVolume(30);
       ytPlayerRef.current.playVideo();
       setIsMusicPlaying(true);
     }
