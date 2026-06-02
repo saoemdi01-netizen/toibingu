@@ -218,6 +218,13 @@ const playGentleClickSound = () => {
 
 export default function App() {
   const [selectedModule, setSelectedModule] = useState(null); // null = 2-square picker
+
+  // Background music state (desktop login only)
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [isMusicMuted, setIsMusicMuted] = useState(false);
+  const ytPlayerRef = useRef(null);
+  const ytReadyRef = useRef(false);
+  const musicContainerRef = useRef(null);
   
   // Auth & Login States
   const [currentUser, setCurrentUser] = useState(() => {
@@ -236,6 +243,90 @@ export default function App() {
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginSuccessMsg, setLoginSuccessMsg] = useState('');
+
+  // Desktop check for music
+  const isDesktop = typeof window !== 'undefined' && window.innerWidth > 1024 && !/Mobi|Android|iPhone|iPad|Tablet/i.test(navigator.userAgent);
+
+  // Load YouTube IFrame API and init player for desktop login
+  useEffect(() => {
+    if (!isDesktop) return;
+    if (isLoggedIn) return;
+
+    // Load YT script if not loaded
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      tag.id = 'yt-iframe-api';
+      document.head.appendChild(tag);
+    }
+
+    const initPlayer = () => {
+      if (ytPlayerRef.current) return;
+      const div = document.getElementById('yt-music-player');
+      if (!div) return;
+      ytPlayerRef.current = new window.YT.Player('yt-music-player', {
+        height: '1',
+        width: '1',
+        videoId: 'SlQR9iu09bQ',
+        playerVars: {
+          autoplay: 1,
+          start: 25,
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          modestbranding: 1,
+          rel: 0,
+          iv_load_policy: 3,
+          mute: 0,
+        },
+        events: {
+          onReady: (event) => {
+            ytReadyRef.current = true;
+            event.target.setVolume(30);
+            event.target.playVideo();
+            setIsMusicPlaying(true);
+          },
+          onStateChange: (event) => {
+            // YT.PlayerState.ENDED = 0
+            if (event.data === 0) {
+              // Loop: seek to 25s and play again
+              event.target.seekTo(25, true);
+              event.target.playVideo();
+            }
+            if (event.data === 1) setIsMusicPlaying(true);
+            if (event.data === 2) setIsMusicPlaying(false);
+          },
+        },
+      });
+    };
+
+    if (window.YT && window.YT.Player) {
+      initPlayer();
+    } else {
+      window.onYouTubeIframeAPIReady = initPlayer;
+    }
+
+    return () => {
+      // Destroy player when logged in
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.destroy === 'function') {
+        try { ytPlayerRef.current.destroy(); } catch(e) {}
+        ytPlayerRef.current = null;
+        ytReadyRef.current = false;
+        setIsMusicPlaying(false);
+      }
+    };
+  }, [isLoggedIn, isDesktop]);
+
+  const toggleMusic = () => {
+    if (!ytPlayerRef.current || !ytReadyRef.current) return;
+    if (isMusicPlaying) {
+      ytPlayerRef.current.pauseVideo();
+      setIsMusicPlaying(false);
+    } else {
+      ytPlayerRef.current.playVideo();
+      setIsMusicPlaying(true);
+    }
+  };
 
   // 2nd layer PIN verification states for admin1 onwards
   const [pinInput, setPinInput] = useState('');
@@ -778,6 +869,45 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center' }}>
+        {/* Hidden YouTube music player for desktop */}
+        {isDesktop && (
+          <div ref={musicContainerRef} style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', opacity: 0, pointerEvents: 'none', top: '-9999px', left: '-9999px' }}>
+            <div id="yt-music-player"></div>
+          </div>
+        )}
+        {/* Music toggle button - desktop only */}
+        {isDesktop && (
+          <button
+            onClick={toggleMusic}
+            title={isMusicPlaying ? 'Tắt nhạc' : 'Bật nhạc'}
+            style={{
+              position: 'fixed',
+              bottom: '2rem',
+              right: '2rem',
+              zIndex: 9999,
+              width: '52px',
+              height: '52px',
+              borderRadius: '50%',
+              border: '1.5px solid rgba(255,255,255,0.25)',
+              background: isMusicPlaying
+                ? 'linear-gradient(135deg, rgba(99,102,241,0.85), rgba(168,85,247,0.85))'
+                : 'rgba(30,30,50,0.75)',
+              backdropFilter: 'blur(12px)',
+              color: 'white',
+              fontSize: '1.4rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: isMusicPlaying
+                ? '0 0 18px rgba(168,85,247,0.5), 0 4px 15px rgba(0,0,0,0.3)'
+                : '0 4px 15px rgba(0,0,0,0.3)',
+              transition: 'all 0.3s ease',
+            }}
+          >
+            {isMusicPlaying ? '🎵' : '🔇'}
+          </button>
+        )}
         <div style={{
           width: '100%',
           maxWidth: '400px',
