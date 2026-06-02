@@ -6,15 +6,15 @@ echo ===================================================
 echo.
 
 echo [1/3] Dang khoi dong Backend Server tai cong 5000...
-start "AnkiCard Backend" /min cmd /k "cd /d %~dp0backend && \"C:\Program Files\nodejs\node.exe\" server.js"
+start "AnkiCard Backend" /min cmd /k "cd /d %~dp0backend && node server.js"
 
 echo.
 echo [2/3] Dang khoi dong Frontend Server tai cong 3001...
-start "AnkiCard Frontend" /min cmd /k "cd /d %~dp0frontend && \"C:\Program Files\nodejs\node.exe\" .\node_modules\vite\bin\vite.js --port 3001 --host"
+start "AnkiCard Frontend" /min cmd /k "cd /d %~dp0frontend && node .\node_modules\vite\bin\vite.js --port 3001 --host"
 
 echo.
 echo [3/3] Dang mo trinh duyet tu dong...
-timeout /t 3 /nobreak >nul
+ping 127.0.0.1 -n 4 >nul
 start http://localhost:3001
 
 echo.
@@ -24,5 +24,5 @@ echo  Trinh duyet cua ban dang duoc mo den: http://localhost:3001
 echo  (Cac cua so server da duoc thu nho xuong duoi Taskbar)
 echo ===================================================
 echo.
-timeout /t 5 >nul
+ping 127.0.0.1 -n 6 >nul
 exit
