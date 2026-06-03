@@ -1,7 +1,42 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import FlashcardPlayer from './components/FlashcardPlayer';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
+// =====================================================================
+// AnkiToast — notification popup khi thêm card vào Anki
+// =====================================================================
+function AnkiToast({ toasts }) {
+  return (
+    <div style={{ position: 'fixed', bottom: '2rem', left: '50%', transform: 'translateX(-50%)', zIndex: 99999, display: 'flex', flexDirection: 'column', gap: '0.6rem', alignItems: 'center', pointerEvents: 'none' }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          pointerEvents: 'none',
+          background: t.type === 'success' ? 'rgba(16,185,129,0.95)'
+            : t.type === 'skip' ? 'rgba(245,158,11,0.95)'
+            : t.type === 'dup' ? 'rgba(99,102,241,0.95)'
+            : t.type === 'offline' ? 'rgba(239,68,68,0.95)'
+            : 'rgba(30,30,50,0.95)',
+          color: 'white',
+          borderRadius: '12px',
+          padding: '0.7rem 1.2rem',
+          fontSize: '0.82rem',
+          fontFamily: 'var(--font-body, system-ui)',
+          fontWeight: '600',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          backdropFilter: 'blur(10px)',
+          maxWidth: '380px',
+          textAlign: 'center',
+          animation: 'ankiToastIn 0.25s ease-out',
+          lineHeight: 1.4,
+        }}>
+          {t.message}
+        </div>
+      ))}
+      <style>{`@keyframes ankiToastIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }`}</style>
+    </div>
+  );
+}
 
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
@@ -594,6 +629,208 @@ export default function App() {
   // Bibliothek Pagination States
   const [libCurrentPage, setLibCurrentPage] = useState(1);
   const libraryListRef = useRef(null);
+
+  // ── Anki Integration State ──────────────────────────────────────────
+  const [ankiStatus, setAnkiStatus] = useState(null); // null | true | false
+  const [ankiSentCards, setAnkiSentCards] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('anki_sent_cards') || '{}'); } catch { return {}; }
+  });
+  const [ankiToasts, setAnkiToasts] = useState([]);
+  const [ankiLoadingCards, setAnkiLoadingCards] = useState(new Set());
+
+  // ── MedDE Ecosystem Hub States ──────────────────────────────────────
+  const [meddeHistory, setMeddeHistory] = useState([]);
+  const [loadingMedde, setLoadingMedde] = useState(false);
+  const [selectedLookupId, setSelectedLookupId] = useState(null);
+  const [importingItem, setImportingItem] = useState(null); // lookup item being promoted
+  const [importCategory, setImportCategory] = useState("Innere Medizin");
+  const [importModule, setImportModule] = useState(2);
+  const [importExample, setImportExample] = useState("");
+
+  const fetchMeddeHistory = async () => {
+    try {
+      setLoadingMedde(true);
+      const res = await fetch(`${API_BASE_URL}/ecosystem/history`);
+      if (res.ok) {
+        const data = await res.json();
+        setMeddeHistory(data);
+      }
+    } catch (err) {
+      console.error("Lỗi lấy lịch sử MedDE:", err);
+    } finally {
+      setLoadingMedde(false);
+    }
+  };
+
+  useEffect(() => {
+    if (rightPanelMode === 'medde_hub') {
+      fetchMeddeHistory();
+    }
+  }, [rightPanelMode]);
+
+  const handleDeleteMeddeItem = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm("Bạn muốn xóa mục này khỏi lịch sử tra cứu?")) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/ecosystem/history/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setMeddeHistory(prev => prev.filter(item => (item._id || item.id) !== id));
+        showAnkiToast("🗑️ Đã xóa lịch sử tra cứu!", "success");
+      }
+    } catch (err) {
+      showAnkiToast("❌ Lỗi khi xóa mục lịch sử", "error");
+    }
+  };
+
+  const handlePromoteToCard = async () => {
+    if (!importingItem) return;
+    try {
+      let formattedTranslation = '';
+      if (importingItem.type === 'quick') {
+        const t = importingItem.translation;
+        formattedTranslation = `[Bản dịch] ${t.viet || ''}\n[Từ loại/Ghi chú] ${t.note || ''}\n[Tiếng Anh] ${t.en || ''}\n[Latin] ${t.latin || ''}\n[Triệu chứng] ${t.symptom || ''}`;
+      } else {
+        const t = importingItem.translation;
+        formattedTranslation = `[Định nghĩa] ${t.dinh_nghia || ''}\n[Triệu chứng] ${t.trieu_chung || ''}\n[Chẩn đoán] ${t.chan_doan || ''}\n[Điều trị] ${t.dieu_tri || ''}\n[IMPP Key] ${t.impp_note || ''}`;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/ecosystem/import-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: `${importingItem.german}${importingItem.word !== importingItem.german ? ` (${importingItem.word})` : ''}`,
+          translation: formattedTranslation,
+          example: importExample || `Tra cứu tự động qua MedDE: "${importingItem.context}"`,
+          category: importCategory,
+          module: importModule
+        })
+      });
+      if (res.ok) {
+        showAnkiToast("➕ Đã lưu thành card Toibingu!", "success");
+        setImportingItem(null);
+        setImportExample("");
+        fetchCards(); // refresh library lists
+      } else {
+        showAnkiToast("❌ Lỗi khi import card", "error");
+      }
+    } catch (err) {
+      showAnkiToast("❌ Kết nối thất bại", "error");
+    }
+  };
+
+  const sendLookupToAnki = async (item, forceAdd = false) => {
+    const id = item._id || item.id;
+    setAnkiLoadingCards(prev => new Set([...prev, id]));
+    try {
+      let word = item.german;
+      let translation = '';
+      let category = 'Tra cứu MedDE';
+      
+      if (item.type === 'quick') {
+        const t = item.translation;
+        translation = `[Nghĩa] ${t.viet || ''}\n[Chi tiết] ${t.note || ''}\n[Triệu chứng] ${t.symptom || ''}`;
+      } else {
+        const t = item.translation;
+        translation = `[Định nghĩa] ${t.dinh_nghia || ''}\n[Triệu chứng] ${t.trieu_chung || ''}\n[Chẩn đoán] ${t.chan_doan || ''}\n[Điều trị] ${t.dieu_tri || ''}\n[IMPP Key] ${t.impp_note || ''}`;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/anki/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: `Từ vựng: ${word}${item.context ? ` (Ngữ cảnh: ${item.context.substring(0, 100)})` : ''}`,
+          translation,
+          category,
+          forceAdd
+        })
+      });
+      const data = await res.json();
+      
+      if (res.status === 503 || data.ankiOffline) {
+        showAnkiToast('⚠️ Anki chưa mở. Vui lòng mở Anki Desktop rồi thử lại.', 'offline', 5000);
+        setAnkiStatus(false);
+        return;
+      }
+      if (data.added) {
+        const updated = { ...ankiSentCards, [id]: { score: data.score, deck: data.deck, ts: Date.now() } };
+        setAnkiSentCards(updated);
+        localStorage.setItem('anki_sent_cards', JSON.stringify(updated));
+        showAnkiToast(`✅ Đã thêm vào Anki! ⭐ IMPP ${data.score}/5 — ${data.reason}`, 'success');
+      } else if (data.duplicate) {
+        showAnkiToast(`🔵 Card này đã có trong Anki rồi.`, 'dup');
+      } else if (data.skipped) {
+        showAnkiToast(
+          `⚡ Điểm IMPP: ${data.score}/5 — ${data.reason}. Nhấp chuột phải/nhấn giữ để thêm thẳng.`,
+          'skip', 5000
+        );
+      } else if (data.error) {
+        showAnkiToast(`❌ Lỗi: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      showAnkiToast('❌ Không kết nối được backend.', 'error');
+    } finally {
+      setAnkiLoadingCards(prev => { const s = new Set(prev); s.delete(id); return s; });
+    }
+  };
+
+  // Kiểm tra AnkiConnect khi vào tab Bibliothek hoặc MedDE Hub
+  useEffect(() => {
+    if ((rightPanelMode === 'bibliothek' || rightPanelMode === 'medde_hub') && ankiStatus === null) {
+      fetch(`${API_BASE_URL}/anki/status`)
+        .then(r => r.json())
+        .then(d => setAnkiStatus(d.connected))
+        .catch(() => setAnkiStatus(false));
+    }
+  }, [rightPanelMode, ankiStatus]);
+
+  const showAnkiToast = useCallback((message, type = 'info', duration = 3500) => {
+    const id = Date.now() + Math.random();
+    setAnkiToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setAnkiToasts(prev => prev.filter(t => t.id !== id)), duration);
+  }, []);
+
+  const sendToAnki = useCallback(async (card, forceAdd = false) => {
+    const cardId = card._id || card.id;
+    setAnkiLoadingCards(prev => new Set([...prev, cardId]));
+    try {
+      const res = await fetch(`${API_BASE_URL}/anki/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: card.word,
+          translation: card.translation,
+          category: card.category,
+          forceAdd
+        })
+      });
+      const data = await res.json();
+
+      if (res.status === 503 || data.ankiOffline) {
+        showAnkiToast('⚠️ Anki chưa mở. Vui lòng mở Anki Desktop rồi thử lại.', 'offline', 5000);
+        setAnkiStatus(false);
+        return;
+      }
+      if (data.added) {
+        const updated = { ...ankiSentCards, [cardId]: { score: data.score, deck: data.deck, ts: Date.now() } };
+        setAnkiSentCards(updated);
+        localStorage.setItem('anki_sent_cards', JSON.stringify(updated));
+        showAnkiToast(`✅ Đã thêm vào Anki! ⭐ IMPP ${data.score}/5 — ${data.reason}`, 'success');
+      } else if (data.duplicate) {
+        showAnkiToast(`🔵 Card này đã có trong Anki rồi.`, 'dup');
+      } else if (data.skipped) {
+        showAnkiToast(
+          `⚡ Điểm IMPP: ${data.score}/5 — ${data.reason}. Nhấn giữ để thêm thủ công.`,
+          'skip', 5000
+        );
+      } else if (data.error) {
+        showAnkiToast(`❌ Lỗi: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      showAnkiToast('❌ Không kết nối được backend. Backend đang chạy chưa?', 'error');
+    } finally {
+      setAnkiLoadingCards(prev => { const s = new Set(prev); s.delete(cardId); return s; });
+    }
+  }, [ankiSentCards, showAnkiToast]);
   
   // Automatically reset to page 1 whenever any search or filter state changes
   useEffect(() => {
@@ -1474,6 +1711,35 @@ export default function App() {
             </div>
           </div>
 
+          {/* Navigation Tab 4: Sổ tay MedDE */}
+          <div 
+            onClick={() => { setActiveSessionCards(null); setRightPanelMode('medde_hub'); }}
+            style={{
+              background: rightPanelMode === 'medde_hub' ? 'linear-gradient(135deg, var(--bg-tertiary) 0%, var(--accent-active-glow-soft) 100%)' : 'var(--bg-secondary)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '16px',
+              padding: '1.5rem',
+              cursor: 'pointer',
+              transition: 'all 0.25s ease-in-out',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1rem',
+              borderColor: rightPanelMode === 'medde_hub' ? 'var(--accent-active-color)' : 'var(--glass-border)',
+              boxShadow: rightPanelMode === 'medde_hub' ? '0 0 15px var(--accent-active-glow)' : 'none'
+            }}
+            className="nav-tab-btn"
+          >
+            <span style={{ fontSize: '2rem' }}>📖</span>
+            <div>
+              <h3 style={{ fontSize: '1.05rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white' }}>
+                Sổ tay MedDE
+              </h3>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Lịch sử tra từ tự động từ MedDE Chrome.
+              </p>
+            </div>
+          </div>
+
           <div style={{ flex: 1 }}></div>
 
           {/* Progress display in Sidebar bottom */}
@@ -1814,15 +2080,28 @@ export default function App() {
                 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', color: 'white' }}>
+                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', color: 'white', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                       {selectedModule === 2 ? "Thư viện lâm sàng (Klinik)" : "Thư viện từ vựng (Bibliothek)"}
+                      {selectedModule === 2 && (
+                        <span
+                          title={ankiStatus === true ? 'AnkiConnect đang kết nối — có thể gửi card vào Anki' : ankiStatus === false ? 'Anki chưa mở — mở Anki Desktop để dùng tính năng này' : 'Đang kiểm tra Anki...'}
+                          style={{ fontSize: '0.65rem', fontWeight: '700', padding: '0.2rem 0.6rem', borderRadius: '20px', cursor: 'help', letterSpacing: '0.03em',
+                            background: ankiStatus === true ? 'rgba(16,185,129,0.15)' : ankiStatus === false ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.07)',
+                            color: ankiStatus === true ? '#34d399' : ankiStatus === false ? '#f87171' : '#94a3b8',
+                            border: `1px solid ${ankiStatus === true ? 'rgba(16,185,129,0.3)' : ankiStatus === false ? 'rgba(239,68,68,0.25)' : 'rgba(255,255,255,0.1)'}`,
+                          }}
+                        >
+                          {ankiStatus === true ? '🟢 Anki' : ankiStatus === false ? '🔴 Anki offline' : '⚪ Anki...'}
+                        </span>
+                      )}
                     </h2>
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
                       {selectedModule === 2 
-                        ? "Duyệt các ca bệnh lâm sàng M2 tinh giản. Nhấp để xem chi tiết dạng Flashcard." 
+                        ? "Duyệt các ca bệnh lâm sàng M2 tinh giản. Nhấp để xem chi tiết. 📤 để gửi vào Anki." 
                         : "Duyệt từ gốc cực kỳ tinh giản. Nhấp để tra cứu chi tiết dạng Flashcard."}
                     </p>
                   </div>
+
                   <button 
                     onClick={() => setRightPanelMode('worten')}
                     style={{
@@ -2029,6 +2308,21 @@ export default function App() {
                                           <span style={{ fontSize: '0.65rem', fontWeight: '600', color: '#94a3b8', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '0.1rem 0.5rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
                                             {subtopicLabel}
                                           </span>
+                                          {/* Nút Anki (chỉ Module 2) */}
+                                          {(() => {
+                                            const isSent = !!ankiSentCards[cardId];
+                                            const isLoading = ankiLoadingCards.has(cardId);
+                                            return (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); if (!isLoading) sendToAnki(card, false); }}
+                                                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (!isLoading) sendToAnki(card, true); }}
+                                                title={isSent ? `Đã có trong Anki (điểm ${ankiSentCards[cardId]?.score}/5) — Chuột phải để thêm lại` : 'Thêm vào Anki (chuột phải = thêm thẳng)'}
+                                                style={{ background: isSent ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.06)', border: `1px solid ${isSent ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.12)'}`, borderRadius: '6px', padding: '2px 6px', fontSize: '0.7rem', color: isSent ? '#a5b4fc' : '#94a3b8', cursor: isLoading ? 'wait' : 'pointer', flexShrink: 0, transition: 'all 0.15s', fontFamily: 'system-ui', whiteSpace: 'nowrap' }}
+                                              >
+                                                {isLoading ? '⏳' : isSent ? '🟣' : '📤'}
+                                              </button>
+                                            );
+                                          })()}
                                           {/* Checkbox */}
                                           <div
                                             onClick={(e) => { e.stopPropagation(); handleUpdateSingleCard(cardId, !card.isLearned); }}
@@ -2255,6 +2549,281 @@ export default function App() {
             </div>
           )}
 
+          {/* 5. MEDDE HUB (ECOSYSTEM) */}
+          {rightPanelMode === 'medde_hub' && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              width: '100%',
+              height: '100%',
+              background: 'var(--bg-secondary)',
+              animation: 'fadeIn 0.3s ease-out'
+            }}>
+              
+              {/* Header with Title */}
+              <div style={{
+                padding: '1.5rem 2rem',
+                background: 'var(--bg-tertiary)',
+                borderBottom: '1px solid var(--glass-border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexShrink: 0
+              }}>
+                <div>
+                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', color: 'white', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    Sổ tay Tra Cứu MedDE
+                    <span
+                      title={ankiStatus === true ? 'AnkiConnect đang kết nối' : 'Anki đang ngoại tuyến'}
+                      style={{ fontSize: '0.65rem', fontWeight: '700', padding: '0.2rem 0.6rem', borderRadius: '20px',
+                        background: ankiStatus === true ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.12)',
+                        color: ankiStatus === true ? '#34d399' : '#f87171',
+                        border: `1px solid ${ankiStatus === true ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.25)'}`
+                      }}
+                    >
+                      {ankiStatus === true ? '🟢 Anki' : '🔴 Anki offline'}
+                    </span>
+                  </h2>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                    Lịch sử tra cứu y khoa tự động được đồng bộ trực tiếp từ MedDE Chrome Extension của bạn.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setRightPanelMode('worten')}
+                  style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--glass-border)',
+                    color: 'var(--text-primary)',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    fontWeight: '600'
+                  }}
+                >
+                  ✕ Đóng sổ tay
+                </button>
+              </div>
+
+              {/* Main Content Layout - Split View */}
+              {loadingMedde && meddeHistory.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ border: '4px solid rgba(255, 255, 255, 0.1)', borderTop: '4px solid var(--accent-primary)', borderRadius: '50%', width: '40px', height: '40px', animation: 'spin 1s linear infinite' }} />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Đang tải lịch sử tra cứu...</p>
+                </div>
+              ) : meddeHistory.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', gap: '1rem', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: '4rem' }}>📖</span>
+                  <h3>Chưa có lịch sử tra cứu nào</h3>
+                  <p style={{ fontSize: '0.85rem', maxWidth: '360px', textAlign: 'center' }}>
+                    Hãy bôi đen và dịch các thuật ngữ y khoa Đức-Việt bằng tiện ích mở rộng MedDE trên trình duyệt để lịch sử tự động xuất hiện tại đây.
+                  </p>
+                  <button onClick={fetchMeddeHistory} className="btn-secondary" style={{ padding: '0.5rem 1.2rem', fontSize: '0.8rem' }}>Tải lại</button>
+                </div>
+              ) : (
+                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                  
+                  {/* Left List Pane */}
+                  <div style={{ width: '38%', borderRight: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', overflowY: 'auto', background: 'rgba(0,0,0,0.1)' }}>
+                    {meddeHistory.map((item, idx) => {
+                      const id = item._id || item.id;
+                      const isSelected = selectedLookupId === id || (!selectedLookupId && idx === 0);
+                      const isQuick = item.type === 'quick';
+                      const wordPreview = item.german || item.word;
+                      
+                      // Auto-select first item
+                      if (idx === 0 && !selectedLookupId) {
+                        setTimeout(() => setSelectedLookupId(id), 0);
+                      }
+
+                      return (
+                        <div
+                          key={id}
+                          onClick={() => setSelectedLookupId(id)}
+                          style={{
+                            padding: '1.2rem 1.5rem',
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            cursor: 'pointer',
+                            background: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+                            borderLeft: isSelected ? '4px solid var(--accent-primary)' : '4px solid transparent',
+                            transition: 'all 0.2s',
+                            position: 'relative'
+                          }}
+                          className="medde-history-item"
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: '0.5rem' }}>
+                            <h4 style={{ color: 'white', fontWeight: '700', fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
+                              {wordPreview}
+                            </h4>
+                            <span style={{
+                              fontSize: '0.62rem', fontWeight: '700', padding: '0.1rem 0.4rem', borderRadius: '4px', textTransform: 'uppercase',
+                              background: isQuick ? 'rgba(59,130,246,0.18)' : 'rgba(168,85,247,0.18)',
+                              color: isQuick ? '#60a5fa' : '#c084fc',
+                              border: `1px solid ${isQuick ? 'rgba(59,130,246,0.3)' : 'rgba(168,85,247,0.3)'}`
+                            }}>
+                              {isQuick ? 'Quick' : 'Deep'}
+                            </span>
+                          </div>
+
+                          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '0.3rem' }}>
+                            {isQuick ? item.translation?.viet : item.translation?.dinh_nghia}
+                          </p>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem' }}>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                              {new Date(item.timestamp).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                            </span>
+                            <button
+                              onClick={(e) => handleDeleteMeddeItem(id, e)}
+                              style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.85rem', cursor: 'pointer', opacity: 0.7, padding: '2px' }}
+                              title="Xóa lịch sử"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right Detail Pane */}
+                  <div style={{ width: '62%', display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '2.5rem' }}>
+                    {(() => {
+                      const activeItem = meddeHistory.find(item => (item._id || item.id) === selectedLookupId) || meddeHistory[0];
+                      if (!activeItem) return null;
+
+                      const isQuick = activeItem.type === 'quick';
+                      const t = activeItem.translation;
+                      const hasSent = !!ankiSentCards[activeItem._id || activeItem.id];
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', animation: 'fadeIn 0.2s ease-out' }}>
+                          
+                          {/* Heading & Main Word info */}
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                              <div>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>Thuật ngữ Đức</span>
+                                <h1 style={{ fontSize: '2.2rem', fontWeight: '800', color: 'white', marginTop: '0.2rem' }}>{activeItem.german}</h1>
+                                {activeItem.word !== activeItem.german && (
+                                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                                    Bôi đen gốc: <span style={{ fontFamily: 'monospace', color: '#fca5a5' }}>"{activeItem.word}"</span>
+                                  </p>
+                                )}
+                              </div>
+                              
+                              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                <button
+                                  onClick={() => setImportingItem(activeItem)}
+                                  className="btn-secondary"
+                                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', padding: '0.6rem 1rem', borderRadius: '10px' }}
+                                >
+                                  ➕ Toibingu
+                                </button>
+                                <button
+                                  onClick={(e) => sendLookupToAnki(activeItem, false)}
+                                  onContextMenu={(e) => { e.preventDefault(); sendLookupToAnki(activeItem, true); }}
+                                  className="btn-primary"
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', padding: '0.6rem 1rem', borderRadius: '10px',
+                                    background: hasSent ? 'linear-gradient(135deg, rgba(99,102,241,0.6), rgba(168,85,247,0.6))' : 'var(--accent-primary)',
+                                    borderColor: hasSent ? 'rgba(99,102,241,0.4)' : 'var(--accent-primary)',
+                                  }}
+                                  title="Thêm vào Anki (Chuột phải để thêm thẳng không qua chấm điểm)"
+                                >
+                                  {hasSent ? '🟣 Đã gửi Anki' : '📤 Gửi vào Anki'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {activeItem.context && (
+                              <div style={{ background: 'rgba(255,255,255,0.03)', borderLeft: '3px solid var(--accent-primary)', padding: '1rem', borderRadius: '0 8px 8px 0', marginTop: '1.2rem' }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase', display: 'block', marginBottom: '0.3rem' }}>Ngữ cảnh phát hiện</span>
+                                <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: '1.5' }}>"{activeItem.context}"</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Render Translation Details (Structured Cards) */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                            {isQuick ? (
+                              // QUICK TRANSLATION LAYOUT
+                              <>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.2rem' }}>
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: '700', textTransform: 'uppercase' }}>Nghĩa Tiếng Việt</span>
+                                    <p style={{ fontSize: '1.1rem', fontWeight: '700', color: 'white', marginTop: '0.4rem' }}>{t.viet || 'N/A'}</p>
+                                  </div>
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#6366f1', fontWeight: '700', textTransform: 'uppercase' }}>Tiếng Anh / Latin</span>
+                                    <p style={{ fontSize: '0.98rem', fontWeight: '600', color: 'white', marginTop: '0.4rem' }}>
+                                      🇬🇧 {t.en || 'N/A'} <br />
+                                      🧬 {t.latin ? <span style={{ fontStyle: 'italic' }}>{t.latin}</span> : 'N/A'}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {t.symptom && (
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: '700', textTransform: 'uppercase' }}>Triệu chứng lâm sàng</span>
+                                    <p style={{ fontSize: '0.92rem', color: 'var(--text-primary)', marginTop: '0.5rem', lineHeight: '1.6' }}>{t.symptom}</p>
+                                  </div>
+                                )}
+
+                                {t.note && (
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase' }}>Ghi chú học tập</span>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem', lineHeight: '1.5' }}>{t.note}</p>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              // DEEP CLINICAL EXPLANATION LAYOUT
+                              <>
+                                <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                  <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: '700', textTransform: 'uppercase' }}>Định nghĩa y khoa</span>
+                                  <p style={{ fontSize: '1rem', color: 'white', marginTop: '0.4rem', lineHeight: '1.6', fontWeight: '500' }}>{t.dinh_nghia || 'N/A'}</p>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.2rem' }}>
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: '700', textTransform: 'uppercase' }}>Triệu chứng điển hình</span>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem', lineHeight: '1.6' }}>{t.trieu_chung || 'N/A'}</p>
+                                  </div>
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#06b6d4', fontWeight: '700', textTransform: 'uppercase' }}>Chẩn đoán quyết định</span>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem', lineHeight: '1.6' }}>{t.chan_doan || 'N/A'}</p>
+                                  </div>
+                                </div>
+
+                                <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                  <span style={{ fontSize: '0.72rem', color: '#ec4899', fontWeight: '700', textTransform: 'uppercase' }}>Nguyên tắc điều trị</span>
+                                  <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem', lineHeight: '1.6' }}>{t.dieu_tri || 'N/A'}</p>
+                                </div>
+
+                                {t.impp_note && (
+                                  <div style={{ background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.1), rgba(168, 85, 247, 0.1))', border: '1px solid rgba(236, 72, 153, 0.25)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#f472b6', fontWeight: '700', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                      ⭐ Key thi IMPP M2
+                                    </span>
+                                    <p style={{ fontSize: '0.92rem', color: 'white', fontWeight: '600', marginTop: '0.4rem', lineHeight: '1.5' }}>{t.impp_note}</p>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+          )}
+
         </main>
 
       </div>
@@ -2392,6 +2961,141 @@ export default function App() {
         </div>
       )}
 
+      {/* --- PROMOTION/IMPORT MODAL FOR ECOSYSTEM HUB --- */}
+      {importingItem !== null && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(5, 6, 12, 0.9)',
+          backdropFilter: 'blur(10px)',
+          zIndex: 3500,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          animation: 'overlayFadeIn 0.25s ease-out'
+        }}
+        onClick={() => { setImportingItem(null); setImportExample(""); }}
+        >
+          <div style={{
+            background: 'var(--bg-secondary)',
+            border: '1.5px solid var(--glass-border)',
+            borderRadius: '24px',
+            padding: '2.5rem 2rem',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 25px 50px rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.5rem',
+            animation: 'modalBumpUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <span style={{ fontSize: '2.5rem' }}>➕</span>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: '800', color: 'white', marginTop: '0.5rem' }}>
+                Thêm vào Thư viện Toibingu
+              </h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                Chuyển thuật ngữ <strong style={{ color: 'white' }}>"{importingItem.german}"</strong> thành một thẻ học tập chính thức.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Học phần học tập</label>
+                <select 
+                  className="form-select"
+                  value={importModule}
+                  onChange={(e) => setImportModule(Number(e.target.value))}
+                  style={{ padding: '0.7rem', borderRadius: '10px', background: 'var(--bg-primary)', border: '1px solid var(--glass-border)', color: 'white' }}
+                >
+                  <option value={2}>Học phần 2 (Chuyên ngành Y khoa)</option>
+                  <option value={1}>Học phần 1 (Từ vựng tiếng Đức tổng hợp)</option>
+                </select>
+              </div>
+
+              {importModule === 2 ? (
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.8rem' }}>Chuyên khoa y học</label>
+                  <select 
+                    className="form-select"
+                    value={importCategory}
+                    onChange={(e) => setImportCategory(e.target.value)}
+                    style={{ padding: '0.7rem', borderRadius: '10px', background: 'var(--bg-primary)', border: '1px solid var(--glass-border)', color: 'white' }}
+                  >
+                    {medicalSpecialties.map(spec => (
+                      <option key={spec} value={spec}>{spec}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.8rem' }}>Nhóm từ vựng</label>
+                  <select 
+                    className="form-select"
+                    value={importCategory}
+                    onChange={(e) => setImportCategory(e.target.value)}
+                    style={{ padding: '0.7rem', borderRadius: '10px', background: 'var(--bg-primary)', border: '1px solid var(--glass-border)', color: 'white' }}
+                  >
+                    <option value="General">General (Từ vựng chung)</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Ghi chú ngữ cảnh / Ví dụ</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Ví dụ: Đọc trên bài Amboss... hoặc để trống"
+                  value={importExample}
+                  onChange={(e) => setImportExample(e.target.value)}
+                  style={{ padding: '0.7rem 1rem', borderRadius: '10px' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+              <button 
+                onClick={() => { setImportingItem(null); setImportExample(""); }}
+                style={{
+                  flex: 1,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--glass-border)',
+                  padding: '0.75rem',
+                  borderRadius: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Hủy bỏ
+              </button>
+              <button 
+                onClick={handlePromoteToCard}
+                style={{
+                  flex: 1,
+                  background: 'var(--accent-primary)',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem',
+                  borderRadius: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)'
+                }}
+              >
+                Tạo thẻ ngay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
@@ -2464,6 +3168,11 @@ export default function App() {
           transform: rotate(-10deg) scale(0.88) !important;
         }
       `}</style>
+
+      {/* Anki Toast Notifications */}
+      <AnkiToast toasts={ankiToasts} />
+
     </div>
+
   );
 }
