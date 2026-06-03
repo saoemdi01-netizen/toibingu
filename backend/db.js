@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const FALLBACK_DB_PATH = path.join(__dirname, 'data', 'db_fallback.json');
-const FALLBACK_LOOKUP_PATH = path.join(__dirname, 'data', 'lookup_fallback.json');
 
 // Mongoose schema definition
 const CardSchema = new mongoose.Schema({
@@ -20,17 +19,6 @@ const CardSchema = new mongoose.Schema({
 
 const CardModel = mongoose.model('Card', CardSchema);
 
-const LookupSchema = new mongoose.Schema({
-  word: { type: String, required: true },
-  german: { type: String, required: true },
-  translation: { type: mongoose.Schema.Types.Mixed, required: true },
-  context: { type: String },
-  type: { type: String, required: true }, // 'quick' | 'deep'
-  timestamp: { type: Date, default: Date.now }
-});
-
-const LookupModel = mongoose.model('Lookup', LookupSchema);
-
 let isMongoDBConnected = false;
 
 // Initialize standard fallback file structure
@@ -41,9 +29,6 @@ function ensureFallbackDirectory() {
   }
   if (!fs.existsSync(FALLBACK_DB_PATH)) {
     fs.writeFileSync(FALLBACK_DB_PATH, JSON.stringify([], null, 2), 'utf-8');
-  }
-  if (!fs.existsSync(FALLBACK_LOOKUP_PATH)) {
-    fs.writeFileSync(FALLBACK_LOOKUP_PATH, JSON.stringify([], null, 2), 'utf-8');
   }
 }
 
@@ -126,85 +111,4 @@ export async function seedDatabase(cardsData) {
   fs.writeFileSync(FALLBACK_DB_PATH, JSON.stringify(processedCards, null, 2), 'utf-8');
   console.log(`Seeded ${processedCards.length} cards to local JSON fallback database.`);
   return true;
-}
-
-export async function getAllLookups() {
-  if (isMongoDBConnected) {
-    try {
-      return await LookupModel.find({}).sort({ timestamp: -1 });
-    } catch (err) {
-      console.error('MongoDB read lookup error, falling back to JSON file:', err);
-    }
-  }
-  
-  ensureFallbackDirectory();
-  const data = fs.readFileSync(FALLBACK_LOOKUP_PATH, 'utf-8');
-  const lookups = JSON.parse(data);
-  return lookups.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-}
-
-export async function addLookup(lookupData) {
-  if (isMongoDBConnected) {
-    try {
-      const newLookup = new LookupModel(lookupData);
-      return await newLookup.save();
-    } catch (err) {
-      console.error('MongoDB write lookup error, falling back to JSON file:', err);
-    }
-  }
-
-  ensureFallbackDirectory();
-  const data = fs.readFileSync(FALLBACK_LOOKUP_PATH, 'utf-8');
-  const lookups = JSON.parse(data);
-  const newLookup = {
-    _id: `lookup_id_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-    ...lookupData,
-    timestamp: lookupData.timestamp || new Date().toISOString()
-  };
-  lookups.push(newLookup);
-  fs.writeFileSync(FALLBACK_LOOKUP_PATH, JSON.stringify(lookups, null, 2), 'utf-8');
-  return newLookup;
-}
-
-export async function deleteLookup(id) {
-  if (isMongoDBConnected) {
-    try {
-      return await LookupModel.findByIdAndDelete(id);
-    } catch (err) {
-      console.error('MongoDB delete lookup error, falling back to JSON file:', err);
-    }
-  }
-
-  ensureFallbackDirectory();
-  const data = fs.readFileSync(FALLBACK_LOOKUP_PATH, 'utf-8');
-  const lookups = JSON.parse(data);
-  const filtered = lookups.filter(l => l._id !== id && l.id !== id);
-  if (lookups.length !== filtered.length) {
-    fs.writeFileSync(FALLBACK_LOOKUP_PATH, JSON.stringify(filtered, null, 2), 'utf-8');
-    return true;
-  }
-  return null;
-}
-
-export async function addCard(cardData) {
-  if (isMongoDBConnected) {
-    try {
-      const card = new CardModel(cardData);
-      return await card.save();
-    } catch (err) {
-      console.error('MongoDB add card error, falling back to JSON file:', err);
-    }
-  }
-
-  ensureFallbackDirectory();
-  const data = fs.readFileSync(FALLBACK_DB_PATH, 'utf-8');
-  const cards = JSON.parse(data);
-  const newCard = {
-    _id: `fallback_id_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-    ...cardData,
-    isLearned: cardData.isLearned || false
-  };
-  cards.push(newCard);
-  fs.writeFileSync(FALLBACK_DB_PATH, JSON.stringify(cards, null, 2), 'utf-8');
-  return newCard;
 }
