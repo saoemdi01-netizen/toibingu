@@ -872,7 +872,7 @@ export default function App() {
   // Delete cached unfinished session manually
   const discardUnfinishedSession = (e) => {
     e.stopPropagation();
-    localStorage.removeItem(`unfinished_session_module_${selectedModule}`);
+    localStorage.removeItem(`unfinished_session_user_${currentUser}_module_${selectedModule}`);
     setUnfinishedSession(null);
   };
 
