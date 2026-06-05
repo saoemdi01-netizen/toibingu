@@ -4,25 +4,30 @@ const getFrontWord = (word, category) => {
   if (category === 'General') {
     return word.split('(')[0].split(',')[0].trim();
   }
+  const lines = word.split('\n');
+  const actualWord = lines.length > 1 ? lines.slice(1).join('\n') : lines[0];
   // Replace all {{c1::answer::hint}} or {{c2::answer}} with [...]
-  return word.replace(/\{\{c\d+::(.*?)(?::.*?)?\}\}/g, '[...]');
+  return actualWord.replace(/\{\{c\d+::(.*?)(?::.*?)?\}\}/g, '[...]');
 };
 
 // Renders back-face word: reveals cloze answers in green capsule,
 // with optional inline Vietnamese translation appended in parens.
 const renderBackWordWithHighlights = (word, clozeTranslations) => {
+  const lines = word.split('\n');
+  const actualWord = lines.length > 1 ? lines.slice(1).join('\n') : lines[0];
+
   const regex = /\{\{c\d+::(.*?)(?::.*?)?\}\}/g;
   const parts = [];
   let lastIndex = 0;
   let match;
 
-  while ((match = regex.exec(word)) !== null) {
+  while ((match = regex.exec(actualWord)) !== null) {
     const matchIndex = match.index;
     const answer = match[1];
     const translation = clozeTranslations ? clozeTranslations[answer] : null;
 
     if (matchIndex > lastIndex) {
-      parts.push(word.substring(lastIndex, matchIndex));
+      parts.push(actualWord.substring(lastIndex, matchIndex));
     }
 
     parts.push(
@@ -49,8 +54,8 @@ const renderBackWordWithHighlights = (word, clozeTranslations) => {
     lastIndex = regex.lastIndex;
   }
 
-  if (lastIndex < word.length) {
-    parts.push(word.substring(lastIndex));
+  if (lastIndex < actualWord.length) {
+    parts.push(actualWord.substring(lastIndex));
   }
 
   return parts;
