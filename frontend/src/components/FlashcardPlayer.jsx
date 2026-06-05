@@ -11,6 +11,19 @@ const getFrontWord = (word, category) => {
 };
 
 // Renders back-face word: reveals cloze answers in green capsule,
+const getClozeAnswers = (word) => {
+  const regex = /\{\{c\d+::(.*?)(?::.*?)?\}\}/g;
+  const answers = [];
+  let match;
+  while ((match = regex.exec(word)) !== null) {
+    const ans = match[1].trim();
+    if (ans && !answers.includes(ans)) {
+      answers.push(ans);
+    }
+  }
+  return answers;
+};
+
 // with optional inline Vietnamese translation appended in parens.
 const renderBackWordWithHighlights = (word, clozeTranslations) => {
   const lines = word.split('\n');
@@ -351,47 +364,121 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
           {/* BACK FACE */}
           <div className={`card-face card-back${currentCard.category !== 'General' ? ' card-back-clinical' : ''}`}>
             <span className="category-tag">{currentCard.category}</span>
-            <div className="card-main-content">
+            <div className="card-main-content" style={{ justifyContent: 'center', gap: '1rem' }}>
 
-              {/* ── Clinical card: cloze sentence with revealed answer ── */}
+              {/* ── Clinical card: Cloze answers badges or translation ── */}
               {currentCard.category !== 'General' && (
-                <div style={{
-                  width: '100%',
-                  padding: '0.9rem 1rem 0.9rem 1.1rem',
-                  background: 'rgba(74, 222, 128, 0.05)',
-                  borderLeft: '3px solid rgba(74, 222, 128, 0.6)',
-                  borderRadius: '0 8px 8px 0',
-                  marginBottom: '0.9rem',
-                  fontSize: '1rem',
-                  lineHeight: '1.75',
-                  color: '#dde6f5',
-                  whiteSpace: 'pre-wrap',
-                }}>
-                  <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.45rem', opacity: 0.8 }}>
-                    ✦ Câu hỏi &amp; Đáp án
-                  </div>
-                  {renderBackWordWithHighlights(currentCard.word, clozeTranslations)}
-                </div>
+                (() => {
+                  const clozes = getClozeAnswers(currentCard.word);
+                  if (clozes.length > 0) {
+                    return (
+                      <>
+                        <div style={{
+                          width: '100%',
+                          padding: '1rem 1.2rem',
+                          background: 'rgba(74, 222, 128, 0.04)',
+                          borderLeft: '3px solid rgba(74, 222, 128, 0.6)',
+                          borderRadius: '0 8px 8px 0',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.5rem',
+                        }}>
+                          <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.8 }}>
+                            ✦ Đáp án
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.2rem' }}>
+                            {clozes.map((ans, idx) => (
+                              <span
+                                key={idx}
+                                style={{
+                                  color: '#4ade80',
+                                  fontWeight: '800',
+                                  background: 'rgba(74, 222, 128, 0.15)',
+                                  padding: '0.35rem 0.85rem',
+                                  borderRadius: '6px',
+                                  border: '1px solid rgba(74, 222, 128, 0.3)',
+                                  fontSize: '1.05rem',
+                                  boxShadow: '0 0 10px rgba(74, 222, 128, 0.1)',
+                                }}
+                              >
+                                {ans}
+                                {clozeTranslations[ans] && (
+                                  <span style={{ color: '#86efac', fontWeight: '400', fontSize: '0.82em', marginLeft: '6px' }}>
+                                    ({clozeTranslations[ans]})
+                                  </span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Explanation / translation for cloze card */}
+                        <div style={{
+                          width: '100%',
+                          padding: '0.9rem 1rem 0.9rem 1.1rem',
+                          background: 'rgba(99, 102, 241, 0.04)',
+                          borderLeft: '3px solid rgba(129, 140, 248, 0.6)',
+                          borderRadius: '0 8px 8px 0',
+                          fontSize: '0.95rem',
+                          lineHeight: '1.7',
+                          color: '#dde6f5',
+                          whiteSpace: 'pre-wrap',
+                          marginTop: '0.2rem',
+                        }}>
+                          <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.45rem', opacity: 0.8 }}>
+                            📋 Giải thích / Dịch nghĩa
+                          </div>
+                          <div className="card-back-translation" style={{ color: '#c8d3e8', fontSize: '0.95rem' }}>
+                            {currentCard.translation}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  } else {
+                    return (
+                      <div style={{
+                        width: '100%',
+                        padding: '1.2rem 1.5rem',
+                        background: 'rgba(74, 222, 128, 0.04)',
+                        borderLeft: '4px solid rgba(74, 222, 128, 0.6)',
+                        borderRadius: '0 8px 8px 0',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.6rem',
+                      }}>
+                        <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.8 }}>
+                          ✦ Đáp án
+                        </div>
+                        <div style={{
+                          color: '#4ade80',
+                          fontWeight: '800',
+                          fontSize: '1.25rem',
+                          lineHeight: '1.5',
+                          whiteSpace: 'pre-wrap',
+                        }}>
+                          {currentCard.translation}
+                        </div>
+                      </div>
+                    );
+                  }
+                })()
               )}
 
-              {/* ── Explanation / vocab translation ── */}
-              {currentCard.category !== 'General' && (
-                <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.4rem', paddingLeft: '0.1rem' }}>
-                  📋 Giải thích
+              {/* ── Explanation / vocab translation (General category only) ── */}
+              {currentCard.category === 'General' && (
+                <div
+                  className="card-back-translation"
+                  style={{
+                    whiteSpace: 'pre-wrap',
+                    textAlign: 'center',
+                    fontSize: '1.8rem',
+                    fontWeight: '700',
+                    color: '#a5b4fc',
+                  }}
+                >
+                  {currentCard.translation}
                 </div>
               )}
-              <div
-                className="card-back-translation"
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  textAlign: currentCard.category === 'General' ? 'center' : 'left',
-                  fontSize: currentCard.category === 'General' ? '1.8rem' : '0.9rem',
-                  fontWeight: currentCard.category === 'General' ? '700' : '400',
-                  color: currentCard.category === 'General' ? '#a5b4fc' : '#c8d3e8',
-                }}
-              >
-                {currentCard.translation}
-              </div>
 
               {/* Example sentence for General vocab cards */}
               {currentCard.category === 'General' && (
