@@ -577,7 +577,7 @@ export default function DuyetPanel({ onBack }) {
     for (const card of approvedCards) {
       const cardId = card.id || card._id;
       try {
-        const formattedWord = `${finalLesson} (Card #${currentNextNum})`;
+        const formattedWord = `${finalLesson} (Card #${currentNextNum})\n${card.front}`;
         const body = {
           word: formattedWord,
           translation: card.back,
