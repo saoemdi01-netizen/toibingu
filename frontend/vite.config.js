@@ -4,13 +4,17 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,
-    host: true
-  },
-  define: {
-    // Inject backend URL at build-time so Vercel always uses Render backend
-    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(
-      process.env.VITE_API_BASE_URL || 'https://ankicard-backend.onrender.com/api'
-    )
+    port: 3001,
+    host: true,
+    proxy: {
+      '/api/decks': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      },
+      '/api/cards': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      }
+    }
   }
 });

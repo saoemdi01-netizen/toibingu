@@ -1,0 +1,128 @@
+[
+  {
+    "_id": "lookup_id_1780496453432_828",
+    "word": "herzinsuffizienz",
+    "german": "Herzinsuffizienz",
+    "translation": {
+      "viet": "Suy tim",
+      "en": "Heart failure",
+      "symptom": "Ph�, kh� th?",
+      "note": "Danh t? y khoa"
+    },
+    "context": "Der Patient leidet an chronischer Herzinsuffizienz.",
+    "type": "quick",
+    "timestamp": "2026-06-03T14:20:53.432Z"
+  },
+  {
+    "_id": "lookup_id_1780565842771_54",
+    "word": "Arbeitsplatzbegehung",
+    "german": "Arbeitsplatzbegehung",
+    "translation": {
+      "german": "Arbeitsplatzbegehung",
+      "viet": "khảo sát nơi làm việc",
+      "latin": "",
+      "en": "workplace inspection",
+      "symptom": "",
+      "note": "Đánh giá điều kiện lao động để phát hiện nguy cơ sức khỏe."
+    },
+    "context": "Arbeitsplatzbegehung",
+    "type": "quick",
+    "timestamp": "2026-06-04T09:37:22.770Z"
+  },
+  {
+    "_id": "lookup_id_1780586828749_64",
+    "word": "Unterrand",
+    "german": "Unterrand",
+    "translation": {
+      "german": "Unterrand",
+      "viet": "bờ dưới",
+      "latin": "margo inferior",
+      "en": "lower border",
+      "symptom": "",
+      "note": "Ranh giới giới hạn phía dưới của một cơ quan hoặc cấu trúc"
+    },
+    "context": "Der Unterrand des Bildschirms sollte sich auf Augenhöhe befinden.",
+    "type": "quick",
+    "timestamp": "2026-06-04T15:27:08.749Z"
+  },
+  {
+    "_id": "lookup_id_1780586839817_110",
+    "word": "Blickrichtung",
+    "german": "Blickrichtung",
+    "translation": {
+      "german": "Blickrichtung",
+      "viet": "hướng nhìn",
+      "latin": "",
+      "en": "line of sight",
+      "symptom": "",
+      "note": "Hướng mắt nhìn của bệnh nhân khi thăm khám hoặc bố trí công thái học"
+    },
+    "context": "Frau K.s Blickrichtung sollte nach Möglichkeit parallel zur Fensterfläche sein.",
+    "type": "quick",
+    "timestamp": "2026-06-04T15:27:19.816Z"
+  },
+  {
+    "_id": "lookup_id_1780587213782_123",
+    "word": "Angiosarkom",
+    "german": "Angiosarkom",
+    "translation": {
+      "german": "Angiosarkom",
+      "viet": "U ác tính mạch máu",
+      "latin": "Angiosarcoma",
+      "en": "Angiosarcoma",
+      "symptom": "Đau bụng, gan to, sụt cân, cổ trướng, xuất huyết nội",
+      "note": "U ác tính nguồn gốc nội mô mạch máu, liên quan phơi nhiễm Vinylchlorid"
+    },
+    "context": "Auf einer onkologischen Station wird ein 54-jähriger Patient mit einem berufsbedingten Angiosarkom der Leber behandelt.",
+    "type": "quick",
+    "timestamp": "2026-06-04T15:33:33.782Z"
+  },
+  {
+    "_id": "lookup_id_1780591072297_842",
+    "word": "Umweltassoziierte",
+    "german": "Umweltassoziierte",
+    "translation": {
+      "german": "Umweltassoziierte",
+      "viet": "liên quan đến môi trường",
+      "latin": "",
+      "en": "environment-associated",
+      "symptom": "",
+      "note": "Các yếu tố từ môi trường bên ngoài tác động đến sức khỏe."
+    },
+    "context": "Umweltassoziierte Faktoren",
+    "type": "quick",
+    "timestamp": "2026-06-04T16:37:52.296Z"
+  },
+  {
+    "_id": "lookup_id_1780591927645_723",
+    "word": "Prä- und perinatale Komplikationen",
+    "german": "Prä- und perinatale Komplikationen",
+    "translation": {
+      "german": "Prä- und perinatale Komplikationen",
+      "viet": "Biến chứng trước và trong khi sinh",
+      "latin": "Complicationes prae- et perinatales",
+      "en": "Pre- and perinatal complications",
+      "symptom": "",
+      "note": "Các tai biến xảy ra trong giai đoạn mang thai và chuyển dạ"
+    },
+    "context": "Prä- und perinatale Komplikationen",
+    "type": "quick",
+    "timestamp": "2026-06-04T16:52:07.645Z"
+  },
+  {
+    "_id": "lookup_id_1780591932763_399",
+    "word": "Beziehungserfahrungen",
+    "german": "Beziehungserfahrungen",
+    "translation": {
+      "german": "Beziehungserfahrungen",
+      "viet": "trải nghiệm mối quan hệ",
+      "latin": "",
+      "en": "relationship experiences",
+      "symptom": "",
+      "note": "Các trải nghiệm tương tác xã hội và gia đình ảnh hưởng tâm lý"
+    },
+    "context": "Ungünstige Beziehungserfahrungen (in der Familie)",
+    "type": "quick",
+    "timestamp": "2026-06-04T16:52:12.762Z"
+  }
+]

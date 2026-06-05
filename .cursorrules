@@ -1,0 +1,19 @@
+# Toibingu & Lightning (MedDE) Project Rules
+
+## 1. Flashcard Generation Rules (SYSTEM_CARDS Prompt)
+When modifying or interacting with the flashcard generation logic (specifically `SYSTEM_CARDS` in `background.js`):
+- **Word Limit Restriction**: Each side of a flashcard (Front or Back) must be extremely concise: ideally **under 12 words**, and **MUST NOT exceed 15 words** total (including both German and Vietnamese text).
+- **Minimum Information Principle**: Each flashcard must focus on exactly one core clinical fact. Avoid long paragraphs or sentences on card faces.
+- **Bilingual Layout**: Both the Front and Back of the cards must include the medical German term (IMPP standard) followed by a short Vietnamese translation/context in parentheses or on a new line.
+- **Differential Diagnosis Warning (Cảnh báo bẫy)**: The Back of basic cards must include a super short differential diagnosis trap warning if similar diseases can be confused with the same key finding.
+  * *Example Front*: `"kirschrote Macula" + akuter, schmerzloser Visusverlust\n(Hố hoàng điểm đỏ anh đào + Mất thị lực cấp KHÔNG đau)`
+  * *Example Back*: `Zentralarterienverschluss (ZAV)\n(Tắc ĐM trung tâm võng mạc. Bẫy: Glaucom cấp gây đau dữ dội!)`
+- **Output Standard**: The output must strictly be a JSON array of card objects with fields `type` ("basic" or "cloze"), `front`, and `back`. No extra explanations or markdown wrapper outside the JSON output.
+
+## 2. Boundaries Between Translation and Flashcards
+- **Translation Logic is Touch-Free**: Do not modify or alter the translation logic, prompts (`SYSTEM_QUICK`, `SYSTEM_DEEP`), or functions (`getQuickTranslation`, `getDeepTranslation`) when working on the flashcard generation module. Translation prompts are already stable and must remain isolated.
+
+## 3. Interactive Review and Edit Panel (DuyetPanel)
+- **Review List UI**: The review queue in `DuyetPanel.jsx` lists all cards in the deck vertically.
+- **Inline Editing & Auto-Save**: Both the Front and Back textareas are editable. An `onBlur` event handler must automatically invoke the `PUT /api/lightning-cards/:cardId` endpoint to save changes to the backend database immediately.
+- **Actions**: Users can reject single cards, approve & export single cards, or export all cards to their target Module 2 lesson.

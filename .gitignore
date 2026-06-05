@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+backend/log.txt
+backend/log_start.txt
+frontend/src/*.b813129
+frontend/src/*.before_revert
+frontend/src/*.conditional_accordion_script.*
+frontend/src/App_utf8.jsx
+frontend/src/*.cjs
+frontend/src/fix_sidebar_and_duyet.cjs
+.vercel

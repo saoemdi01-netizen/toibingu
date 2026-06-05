@@ -1,7 +1,44 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import FlashcardPlayer from './components/FlashcardPlayer';
+import LightningDecksView from './components/LightningDecksView';
+import DuyetPanel from './components/DuyetPanel';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
+// =====================================================================
+// AnkiToast — notification popup khi thêm card vào Anki
+// =====================================================================
+function AnkiToast({ toasts }) {
+  return (
+    <div style={{ position: 'fixed', bottom: '2rem', left: '50%', transform: 'translateX(-50%)', zIndex: 99999, display: 'flex', flexDirection: 'column', gap: '0.6rem', alignItems: 'center', pointerEvents: 'none' }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          pointerEvents: 'none',
+          background: t.type === 'success' ? 'rgba(16,185,129,0.95)'
+            : t.type === 'skip' ? 'rgba(245,158,11,0.95)'
+            : t.type === 'dup' ? 'rgba(99,102,241,0.95)'
+            : t.type === 'offline' ? 'rgba(239,68,68,0.95)'
+            : 'rgba(30,30,50,0.95)',
+          color: 'white',
+          borderRadius: '12px',
+          padding: '0.7rem 1.2rem',
+          fontSize: '0.82rem',
+          fontFamily: 'var(--font-body, system-ui)',
+          fontWeight: '600',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+          backdropFilter: 'blur(10px)',
+          maxWidth: '380px',
+          textAlign: 'center',
+          animation: 'ankiToastIn 0.25s ease-out',
+          lineHeight: 1.4,
+        }}>
+          {t.message}
+        </div>
+      ))}
+      <style>{`@keyframes ankiToastIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }`}</style>
+    </div>
+  );
+}
 
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
@@ -162,31 +199,84 @@ const getMeditricksTopicNumber = (name) => {
 
 // Groups clinical cards by disease name, sorted and prefixed by Meditricks TOP 100 numbering
 // Returns array of { diseaseName, cards[] }
-const groupCardsByClinicalTopic = (cards) => {
+const getCardDiseaseName = (card) => {
+  const nameMatch = card.word.match(/^([^(]+)\s*\(Card\s*#\d+\)/i);
+  return nameMatch
+    ? nameMatch[1].trim()
+    : card.word.split('\n')[0].split('(')[0].trim();
+};
+
+const groupCardsByClinicalTopic = (cards, customLessons = []) => {
   const map = new Map();
+  
+  // Initialize map with all 182 standard Meditricks M2 chapters/themes
+  meditricksM2Order.forEach(themeName => {
+    map.set(themeName, { diseaseName: themeName, cards: [] });
+  });
+
+  // Initialize map with any custom lessons saved by the user
+  if (Array.isArray(customLessons)) {
+    customLessons.forEach(themeName => {
+      if (themeName && !map.has(themeName)) {
+        map.set(themeName, { diseaseName: themeName, cards: [] });
+      }
+    });
+  }
+
   cards.forEach(card => {
     // Extract disease name: everything BEFORE "(Card #N)" — greedy match
     const nameMatch = card.word.match(/^([^(]+)\s*\(Card\s*#\d+\)/i);
     const diseaseName = nameMatch
       ? nameMatch[1].trim()
       : card.word.split('\n')[0].split('(')[0].trim();
-    if (!map.has(diseaseName)) {
-      map.set(diseaseName, { diseaseName, cards: [] });
+      
+    // Find matching theme case-insensitively
+    let matchedKey = null;
+    for (const key of map.keys()) {
+      if (key.toLowerCase().trim() === diseaseName.toLowerCase().trim()) {
+        matchedKey = key;
+        break;
+      }
     }
-    map.get(diseaseName).cards.push(card);
+    
+    if (matchedKey) {
+      map.get(matchedKey).cards.push(card);
+    } else {
+      // If it's a custom theme not in the 182 order list, add it
+      map.set(diseaseName, { diseaseName, cards: [card] });
+    }
   });
 
-  return Array.from(map.values())
+  const sorted = Array.from(map.values())
     .map(group => {
       const num = getMeditricksTopicNumber(group.diseaseName);
-      const prefix = num && num !== 999 ? `${num}. ` : '';
       return {
         ...group,
-        num: num,
-        displayName: `${prefix}${group.diseaseName}`
+        num: num
       };
     })
-    .sort((a, b) => a.num - b.num);
+    .sort((a, b) => {
+      if (a.num !== b.num) return a.num - b.num;
+      return a.diseaseName.localeCompare(b.diseaseName);
+    });
+
+  let customIndex = 0;
+  return sorted.map(group => {
+    let finalNum = group.num;
+    let prefix = '';
+    if (group.num !== 999) {
+      prefix = `${group.num}. `;
+    } else {
+      finalNum = meditricksM2Order.length + 1 + customIndex;
+      prefix = `${finalNum}. `;
+      customIndex++;
+    }
+    return {
+      ...group,
+      num: finalNum,
+      displayName: `${prefix}${group.diseaseName}`
+    };
+  });
 };
 
 
@@ -306,8 +396,373 @@ const NeonWaveCanvas = () => {
 };
 
 
+// =====================================================================
+// DuyetView — Review Queue: show in-progress (unlearned) cards
+// with Public and Delete actions
+// =====================================================================
+function DuyetView({ cards, selectedModule, apiBaseUrl, showAnkiToast, setRocketState, setModalSessionCards, setModalStartIndex }) {
+  const [publishedIds, setPublishedIds] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('duyet_published_ids') || '[]'); } catch { return []; }
+  });
+  const [deletedIds, setDeletedIds] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('duyet_deleted_ids') || '[]'); } catch { return []; }
+  });
+  const [publishingId, setPublishingId] = useState(null);
+  const [searchQ, setSearchQ] = useState('');
+
+  // Cards in review = unlearned, from selected module, not already processed
+  const reviewCards = useMemo(() => {
+    return (cards || []).filter(c => {
+      const id = c._id || c.id;
+      if (deletedIds.includes(id)) return false;
+      if (publishedIds.includes(id)) return false;
+      if (c.isLearned) return false;
+      if (selectedModule && c.module && c.module !== selectedModule) return false;
+      if (searchQ.trim()) {
+        const q = searchQ.toLowerCase();
+        return (c.word || '').toLowerCase().includes(q) || (c.translation || '').toLowerCase().includes(q) || (c.category || '').toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [cards, deletedIds, publishedIds, searchQ, selectedModule]);
+
+  const savePublished = (ids) => {
+    setPublishedIds(ids);
+    localStorage.setItem('duyet_published_ids', JSON.stringify(ids));
+  };
+  const saveDeleted = (ids) => {
+    setDeletedIds(ids);
+    localStorage.setItem('duyet_deleted_ids', JSON.stringify(ids));
+  };
+
+  const [cardToDelete, setCardToDelete] = useState(null);
+
+  const handlePublic = async (card) => {
+    const id = card._id || card.id;
+    setPublishingId(id);
+    try {
+      if (setRocketState) {
+        setRocketState('launching');
+        setTimeout(() => setRocketState('idle'), 2500);
+      }
+      const res = await fetch(`${apiBaseUrl}/ecosystem/import-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: card.word,
+          translation: card.translation,
+          example: card.example || '',
+          category: card.category || 'Innere Medizin',
+          module: 2
+        })
+      });
+      if (res.ok) {
+        savePublished([...publishedIds, id]);
+        showAnkiToast('🌐 Đã public vào Bibliothek Y Khoa M2!', 'success');
+      } else {
+        const err = await res.json();
+        showAnkiToast(`❌ Public thất bại: ${err.error || 'Lỗi server'}`, 'error');
+      }
+    } catch (e) {
+      showAnkiToast('❌ Không kết nối được server', 'error');
+    } finally {
+      setPublishingId(null);
+    }
+  };
+
+  const handleDelete = (card) => {
+    setCardToDelete(card);
+  };
+
+  const confirmDelete = () => {
+    if (!cardToDelete) return;
+    const id = cardToDelete._id || cardToDelete.id;
+    saveDeleted([...deletedIds, id]);
+    showAnkiToast('🗑️ Đã xóa khỏi hàng đợi duyệt', 'success');
+    setCardToDelete(null);
+    if (setRocketState) {
+      setRocketState('flickering');
+      setTimeout(() => setRocketState('idle'), 2000);
+    }
+  };
+
+  useEffect(() => {
+    if (!cardToDelete) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        confirmDelete();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setCardToDelete(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cardToDelete]);
+
+  const categoryColor = (cat) => {
+    const map = {
+      'Innere Medizin': '#6366f1', 'Chirurgie': '#f59e0b', 'Neurologie': '#10b981',
+      'Pädiatrie': '#ec4899', 'Pharmakologie': '#8b5cf6', 'Gynäkologie': '#f472b6',
+      'Dermatologie': '#f97316', 'Psychiatrie': '#14b8a6', 'General': '#64748b',
+    };
+    if (!cat) return '#64748b';
+    const key = Object.keys(map).find(k => cat.includes(k));
+    return key ? map[key] : '#6366f1';
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', background: 'var(--bg-secondary)', animation: 'fadeIn 0.3s ease-out' }}>
+      {/* Header */}
+      <div style={{ background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--glass-border)', padding: '1.8rem 2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', color: 'white', display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0 }}>
+              📋 Hàng đợi Duyệt
+            </h2>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>
+              {reviewCards.length} thẻ đang trong quá trình ôn tập. Chọn <strong style={{ color: '#a78bfa' }}>🌐 Public</strong> để đưa vào Bibliothek Y Khoa M2, hoặc <strong style={{ color: '#f87171' }}>🗑️ Xóa</strong> để loại bỏ khỏi hàng đợi.
+            </p>
+          </div>
+          {/* Stats badges */}
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.4)', color: '#a5b4fc', borderRadius: '20px', padding: '0.3rem 0.9rem', fontSize: '0.78rem', fontWeight: '700' }}>
+              📋 {reviewCards.length} đang duyệt
+            </span>
+            <span style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#6ee7b7', borderRadius: '20px', padding: '0.3rem 0.9rem', fontSize: '0.78rem', fontWeight: '700' }}>
+              ✅ {publishedIds.length} đã public
+            </span>
+            <span style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', borderRadius: '20px', padding: '0.3rem 0.9rem', fontSize: '0.78rem', fontWeight: '700' }}>
+              🗑️ {deletedIds.length} đã xóa
+            </span>
+          </div>
+        </div>
+        {/* Search bar */}
+        <div style={{ marginTop: '1.2rem', position: 'relative' }}>
+          <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '1rem' }}>🔍</span>
+          <input
+            type="text"
+            placeholder="Tìm kiếm thẻ đang duyệt..."
+            className="form-input"
+            value={searchQ}
+            onChange={e => setSearchQ(e.target.value)}
+            style={{ paddingLeft: '2.8rem', background: 'var(--bg-primary)', fontSize: '0.9rem', borderRadius: '10px', width: '100%', maxWidth: '480px' }}
+          />
+          {searchQ && (
+            <button onClick={() => setSearchQ('')} style={{ position: 'absolute', left: 'calc(100% - max(calc(100% - 480px), 0px) - 2.5rem)', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+          )}
+        </div>
+      </div>
+
+      {/* Card grid */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem 2rem' }} className="library-large-list">
+        {reviewCards.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '5rem 2rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '4rem', display: 'block', marginBottom: '1rem' }}>✨</span>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', color: 'white', marginBottom: '0.5rem' }}>Hàng đợi trống!</h3>
+            <p style={{ fontSize: '0.9rem' }}>Tất cả các thẻ đã được duyệt xong. Hãy bắt đầu một phiên ôn tập mới để thêm thẻ vào hàng đợi.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+            {reviewCards.map((card, idx) => {
+              const id = card._id || card.id;
+              const isPublishing = publishingId === id;
+              const color = categoryColor(card.category);
+              // Extract display text
+              const titleLines = (card.word || '').split('\n').map(l => l.trim()).filter(Boolean);
+              const title = titleLines[1] || titleLines[0] || card.word;
+              const previewTitle = title.replace(/\{\{c\d+::([^}]*)\}\}/g, '[$1]').substring(0, 90);
+              const descLines = (card.translation || '').split('\n').map(l => l.trim()).filter(Boolean);
+              const desc = descLines[0] || '';
+              const previewDesc = desc.substring(0, 120);
+
+              return (
+                <div
+                  key={id}
+                  style={{
+                    background: 'var(--glass-bg)',
+                    border: `1px solid rgba(255,255,255,0.08)`,
+                    borderLeft: `3px solid ${color}`,
+                    borderRadius: '14px',
+                    padding: '1rem 1.3rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '1rem',
+                    transition: 'all 0.2s',
+                    opacity: isPublishing ? 0.6 : 1,
+                    cursor: 'pointer'
+                  }}
+                  className="library-large-card-compact"
+                  onClick={() => {
+                    if (setModalSessionCards && setModalStartIndex) {
+                      setModalSessionCards(reviewCards);
+                      setModalStartIndex(idx);
+                    }
+                  }}
+                >
+                  {/* Index */}
+                  <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'rgba(165,180,252,0.45)', minWidth: '1.8rem', flexShrink: 0, textAlign: 'right' }}>#{idx + 1}</span>
+
+                  {/* Content */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.9rem', fontWeight: '700', color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: '0.2rem' }}>
+                      {previewTitle}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {previewDesc}
+                    </div>
+                  </div>
+
+                  {/* Category badge */}
+                  <span style={{
+                    fontSize: '0.65rem', fontWeight: '700', color: color,
+                    background: `${color}18`, border: `1px solid ${color}50`,
+                    borderRadius: '20px', padding: '0.2rem 0.6rem',
+                    whiteSpace: 'nowrap', flexShrink: 0
+                  }}>
+                    {card.category || 'General'}
+                  </span>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                    <button
+                      disabled={isPublishing}
+                      onClick={(e) => { e.stopPropagation(); handlePublic(card); }}
+                      style={{
+                        background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                        border: 'none',
+                        color: 'white',
+                        borderRadius: '8px',
+                        padding: '0.45rem 0.85rem',
+                        fontSize: '0.78rem',
+                        fontWeight: '700',
+                        cursor: isPublishing ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                        transition: 'all 0.15s',
+                        whiteSpace: 'nowrap',
+                        boxShadow: '0 2px 8px rgba(99,102,241,0.3)'
+                      }}
+                      title="Public vào Bibliothek Y Khoa M2"
+                    >
+                      {isPublishing ? '⏳ ...' : '🌐 Public'}
+                    </button>
+                    <button
+                      disabled={isPublishing}
+                      onClick={(e) => { e.stopPropagation(); handleDelete(card); }}
+                      style={{
+                        background: 'rgba(239,68,68,0.12)',
+                        border: '1px solid rgba(239,68,68,0.35)',
+                        color: '#fca5a5',
+                        borderRadius: '8px',
+                        padding: '0.45rem 0.75rem',
+                        fontSize: '0.78rem',
+                        fontWeight: '700',
+                        cursor: isPublishing ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s',
+                        whiteSpace: 'nowrap'
+                      }}
+                      title="Xóa khỏi hàng đợi duyệt"
+                    >
+                      🗑️ Xóa
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {cardToDelete && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            backgroundColor: 'rgba(5, 6, 12, 0.85)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 2000,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+          onClick={() => setCardToDelete(null)}
+        >
+          <div 
+            style={{
+              width: '90%',
+              maxWidth: '420px',
+              background: 'var(--bg-secondary)',
+              border: '1.5px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '20px',
+              padding: '2.2rem 1.8rem',
+              textAlign: 'center',
+              boxShadow: '0 20px 50px rgba(239, 68, 68, 0.15)',
+              position: 'relative'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span style={{ fontSize: '3rem', display: 'block', marginBottom: '0.8rem' }}>⚠️</span>
+            <h3 style={{ fontSize: '1.25rem', fontFamily: 'var(--font-display)', fontWeight: '900', color: 'white', marginBottom: '0.6rem', letterSpacing: '0.5px' }}>
+              XÁC NHẬN XÓA THẺ
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '1.8rem' }}>
+              Bạn có chắc chắn muốn xóa vĩnh viễn flashcard này khỏi hàng đợi duyệt? Thao tác này không thể hoàn tác.
+            </p>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button 
+                onClick={() => setCardToDelete(null)}
+                style={{
+                  flex: 1,
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid var(--glass-border)',
+                  color: 'var(--text-primary)',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '12px',
+                  fontSize: '0.88rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                Hủy bỏ
+              </button>
+              <button 
+                onClick={confirmDelete}
+                style={{
+                  flex: 1,
+                  background: '#ef4444',
+                  border: 'none',
+                  color: 'white',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '12px',
+                  fontSize: '0.88rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                Đồng ý xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function App() {
   const [selectedModule, setSelectedModule] = useState(null); // null = 2-square picker
+  const [rocketState, setRocketState] = useState('idle');
 
   // Background music state (desktop login only)
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
@@ -582,6 +1037,16 @@ export default function App() {
   // Navigation Panel Mode
   const [rightPanelMode, setRightPanelMode] = useState('worten'); // 'worten', 'bibliothek', 'flashcard'
   const [showCongrats, setShowCongrats] = useState(false);
+  const [expandedThemes, setExpandedThemes] = useState({});
+  const [manualSpecialties, setManualSpecialties] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('manual_specialties') || '{}'); } catch { return {}; }
+  });
+  const [customLessons, setCustomLessons] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('custom_lessons_m2') || '[]'); } catch { return []; }
+  });
+  const [newLessonInputVal, setNewLessonInputVal] = useState('');
+  const [newLessonSpecialty, setNewLessonSpecialty] = useState('Innere Medizin');
+  const [isAdminReviewMode, setIsAdminReviewMode] = useState(false);
   
   // Bibliothek search and filter states
   const [libSearchQuery, setLibSearchQuery] = useState('');
@@ -594,6 +1059,401 @@ export default function App() {
   // Bibliothek Pagination States
   const [libCurrentPage, setLibCurrentPage] = useState(1);
   const libraryListRef = useRef(null);
+
+  const renderLibPagination = (currentPage, totalPages, onPageChange, labelText) => {
+    if (totalPages <= 1) return null;
+    
+    const pages = [];
+    const maxVisible = 5;
+    
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      
+      let start = Math.max(2, currentPage - 1);
+      let end = Math.min(totalPages - 1, currentPage + 1);
+      
+      if (currentPage <= 2) {
+        end = 4;
+      } else if (currentPage >= totalPages - 1) {
+        start = totalPages - 3;
+      }
+      
+      if (start > 2) pages.push('...');
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (end < totalPages - 1) pages.push('...');
+      
+      pages.push(totalPages);
+    }
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.6rem', padding: '1.2rem 0', marginTop: '1.2rem', borderTop: '1px solid var(--glass-border)', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+          {/* Arrow Left */}
+          <button 
+            disabled={currentPage === 1} 
+            onClick={() => { onPageChange(currentPage - 1); libraryListRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }} 
+            className="btn-nav" 
+            style={{ width: '32px', height: '32px', borderRadius: '8px', fontSize: '0.8rem', padding: 0 }}
+          >
+            ←
+          </button>
+          
+          {/* Page Buttons */}
+          {pages.map((p, idx) => {
+            if (p === '...') {
+              return (
+                <span key={`ell-${idx}`} style={{ color: 'var(--text-muted)', padding: '0 0.25rem', userSelect: 'none', fontSize: '0.85rem' }}>
+                  ...
+                </span>
+              );
+            }
+            const isActive = p === currentPage;
+            return (
+              <button
+                key={p}
+                onClick={() => { onPageChange(p); libraryListRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  border: isActive ? '1px solid var(--accent-active-color)' : '1px solid var(--glass-border)',
+                  background: isActive ? 'var(--accent-active-color)' : 'rgba(255,255,255,0.03)',
+                  color: isActive ? 'white' : 'var(--text-secondary)',
+                  fontWeight: '600',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                {p}
+              </button>
+            );
+          })}
+          
+          {/* Arrow Right */}
+          <button 
+            disabled={currentPage === totalPages} 
+            onClick={() => { onPageChange(currentPage + 1); libraryListRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }} 
+            className="btn-nav" 
+            style={{ width: '32px', height: '32px', borderRadius: '8px', fontSize: '0.8rem', padding: 0 }}
+          >
+            →
+          </button>
+
+          {/* Quick select dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginLeft: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Đến trang:</span>
+            <select
+              value={currentPage}
+              onChange={(e) => { onPageChange(Number(e.target.value)); libraryListRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              style={{
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--glass-border)',
+                padding: '0.2rem 0.4rem',
+                borderRadius: '6px',
+                fontSize: '0.75rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <option key={page} value={page}>{page}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        {/* Info Label */}
+        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+          {labelText}
+        </span>
+      </div>
+    );
+  };
+
+  // ── Anki Integration State ──────────────────────────────────────────
+  const [ankiStatus, setAnkiStatus] = useState(null); // null | true | false
+  const [ankiSentCards, setAnkiSentCards] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('anki_sent_cards') || '{}'); } catch { return {}; }
+  });
+  const [ankiToasts, setAnkiToasts] = useState([]);
+  const [ankiLoadingCards, setAnkiLoadingCards] = useState(new Set());
+
+  // ── MedDE Ecosystem Hub States ──────────────────────────────────────
+  const [meddeHistory, setMeddeHistory] = useState([]);
+  const [loadingMedde, setLoadingMedde] = useState(false);
+  const [selectedLookupId, setSelectedLookupId] = useState(null);
+  const [importingItem, setImportingItem] = useState(null); // lookup item being promoted
+  const [importCategory, setImportCategory] = useState("Innere Medizin");
+  const [importModule, setImportModule] = useState(2);
+  const [importExample, setImportExample] = useState("");
+
+  const fetchMeddeHistory = async () => {
+    try {
+      setLoadingMedde(true);
+      const res = await fetch(`${API_BASE_URL}/ecosystem/history`);
+      if (res.ok) {
+        const data = await res.json();
+        setMeddeHistory(data);
+      }
+    } catch (err) {
+      console.error("Lỗi lấy lịch sử MedDE:", err);
+    } finally {
+      setLoadingMedde(false);
+    }
+  };
+
+  useEffect(() => {
+    if (rightPanelMode === 'medde_hub') {
+      fetchMeddeHistory();
+    }
+  }, [rightPanelMode]);
+
+  // Auto-select first MedDE history item when list loads (proper useEffect, NOT setState-in-render)
+  useEffect(() => {
+    if (meddeHistory.length > 0 && !selectedLookupId) {
+      const firstId = meddeHistory[0]._id || meddeHistory[0].id;
+      setSelectedLookupId(firstId);
+    }
+  }, [meddeHistory]);
+
+  const handleDeleteMeddeItem = async (id, e) => {
+    if (e) e.stopPropagation();
+    if (!confirm("Bạn muốn xóa mục này khỏi lịch sử tra cứu?")) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/ecosystem/history/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setMeddeHistory(prev => prev.filter(item => (item._id || item.id) !== id));
+        showAnkiToast("🗑️ Đã xóa lịch sử tra cứu!", "success");
+      }
+    } catch (err) {
+      showAnkiToast("❌ Lỗi khi xóa mục lịch sử", "error");
+    }
+  };
+
+  const handlePromoteToCard = async () => {
+    if (!importingItem) return;
+    try {
+      let formattedTranslation = '';
+      if (importingItem.type === 'quick') {
+        const t = importingItem.translation;
+        formattedTranslation = `[Bản dịch] ${t.viet || ''}\n[Từ loại/Ghi chú] ${t.note || ''}\n[Tiếng Anh] ${t.en || ''}\n[Latin] ${t.latin || ''}\n[Triệu chứng] ${t.symptom || ''}`;
+      } else {
+        const t = importingItem.translation;
+        formattedTranslation = `[Định nghĩa] ${t.dinh_nghia || ''}\n[Triệu chứng] ${t.trieu_chung || ''}\n[Chẩn đoán] ${t.chan_doan || ''}\n[Điều trị] ${t.dieu_tri || ''}\n[IMPP Key] ${t.impp_note || ''}`;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/ecosystem/import-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: `${importingItem.german}${importingItem.word !== importingItem.german ? ` (${importingItem.word})` : ''}`,
+          translation: formattedTranslation,
+          example: importExample || `Tra cứu tự động qua MedDE: "${importingItem.context}"`,
+          category: importCategory,
+          module: importModule
+        })
+      });
+      if (res.ok) {
+        showAnkiToast("➕ Đã lưu thành card Toibingu!", "success");
+        setImportingItem(null);
+        setImportExample("");
+        fetchCards(); // refresh library lists
+      } else {
+        showAnkiToast("❌ Lỗi khi import card", "error");
+      }
+    } catch (err) {
+      showAnkiToast("❌ Kết nối thất bại", "error");
+    }
+  };
+
+  const sendLookupToAnki = async (item, forceAdd = false) => {
+    const id = item._id || item.id;
+    setAnkiLoadingCards(prev => new Set([...prev, id]));
+    try {
+      let word = item.german;
+      let translation = '';
+      let category = 'Tra cứu MedDE';
+      
+      if (item.type === 'quick') {
+        const t = item.translation;
+        translation = `[Nghĩa] ${t.viet || ''}\n[Chi tiết] ${t.note || ''}\n[Triệu chứng] ${t.symptom || ''}`;
+      } else {
+        const t = item.translation;
+        translation = `[Định nghĩa] ${t.dinh_nghia || ''}\n[Triệu chứng] ${t.trieu_chung || ''}\n[Chẩn đoán] ${t.chan_doan || ''}\n[Điều trị] ${t.dieu_tri || ''}\n[IMPP Key] ${t.impp_note || ''}`;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/anki/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: `Từ vựng: ${word}${item.context ? ` (Ngữ cảnh: ${item.context.substring(0, 100)})` : ''}`,
+          translation,
+          category,
+          forceAdd
+        })
+      });
+      const data = await res.json();
+      
+      if (res.status === 503 || data.ankiOffline) {
+        showAnkiToast('⚠️ Anki chưa mở. Vui lòng mở Anki Desktop rồi thử lại.', 'offline', 5000);
+        setAnkiStatus(false);
+        return;
+      }
+      if (data.added) {
+        const updated = { ...ankiSentCards, [id]: { score: data.score, deck: data.deck, ts: Date.now() } };
+        setAnkiSentCards(updated);
+        localStorage.setItem('anki_sent_cards', JSON.stringify(updated));
+        showAnkiToast(`✅ Đã thêm vào Anki! ⭐ IMPP ${data.score}/5 — ${data.reason}`, 'success');
+      } else if (data.duplicate) {
+        showAnkiToast(`🔵 Card này đã có trong Anki rồi.`, 'dup');
+      } else if (data.skipped) {
+        showAnkiToast(
+          `⚡ Điểm IMPP: ${data.score}/5 — ${data.reason}. Nhấp chuột phải/nhấn giữ để thêm thẳng.`,
+          'skip', 5000
+        );
+      } else if (data.error) {
+        showAnkiToast(`❌ Lỗi: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      showAnkiToast('❌ Không kết nối được backend.', 'error');
+    } finally {
+      setAnkiLoadingCards(prev => { const s = new Set(prev); s.delete(id); return s; });
+    }
+  };
+
+  // Kiểm tra AnkiConnect khi vào tab Bibliothek hoặc MedDE Hub
+  useEffect(() => {
+    if ((rightPanelMode === 'bibliothek' || rightPanelMode === 'medde_hub') && ankiStatus === null) {
+      fetch(`${API_BASE_URL}/anki/status`)
+        .then(r => r.json())
+        .then(d => setAnkiStatus(d.connected))
+        .catch(() => setAnkiStatus(false));
+    }
+  }, [rightPanelMode, ankiStatus]);
+
+  const showAnkiToast = useCallback((message, type = 'info', duration = 3500) => {
+    const id = Date.now() + Math.random();
+    setAnkiToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setAnkiToasts(prev => prev.filter(t => t.id !== id)), duration);
+  }, []);
+
+  const handleAddNewLesson = () => {
+    const name = newLessonInputVal.trim();
+    if (!name) {
+      showAnkiToast('Vui lòng nhập tên bài lớn mới!', 'error');
+      return;
+    }
+    
+    const isStandard = meditricksM2Order.some(l => l.toLowerCase().trim() === name.toLowerCase());
+    const isCustom = customLessons.some(l => l.toLowerCase().trim() === name.toLowerCase());
+    
+    if (isStandard || isCustom) {
+      showAnkiToast(`Bài lớn "${name}" đã tồn tại!`, 'error');
+      return;
+    }
+    
+    const updatedCustom = [...customLessons, name];
+    localStorage.setItem('custom_lessons_m2', JSON.stringify(updatedCustom));
+    setCustomLessons(updatedCustom);
+    
+    const updatedSpecialties = { ...manualSpecialties, [name]: newLessonSpecialty };
+    setManualSpecialties(updatedSpecialties);
+    localStorage.setItem('manual_specialties', JSON.stringify(updatedSpecialties));
+    
+    setNewLessonInputVal('');
+    showAnkiToast(`🚀 Đã thêm thành công bài lớn "${name}"!`, 'success');
+  };
+
+  const handleDeleteCustomLesson = async (lessonName, groupCards) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa bài lớn "${lessonName}" và tất cả ${groupCards.length} thẻ thuộc bài học này? Thao tác này không thể hoàn tác.`)) {
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // 1. Delete all cards belonging to this lesson from the server/db
+      if (groupCards && groupCards.length > 0) {
+        for (const card of groupCards) {
+          const cardId = card._id || card.id;
+          await fetch(`${API_BASE_URL}/cards/${cardId}`, {
+            method: 'DELETE'
+          });
+        }
+      }
+      
+      // 2. Remove from customLessons state & localStorage
+      const updatedCustom = customLessons.filter(l => l !== lessonName);
+      setCustomLessons(updatedCustom);
+      localStorage.setItem('custom_lessons_m2', JSON.stringify(updatedCustom));
+      
+      // 3. Remove specialty mapping
+      const updatedSpecs = { ...manualSpecialties };
+      delete updatedSpecs[lessonName];
+      setManualSpecialties(updatedSpecs);
+      localStorage.setItem('manual_specialties', JSON.stringify(updatedSpecs));
+      
+      showAnkiToast(`🗑️ Đã xóa bài lớn "${lessonName}" thành công!`, 'success');
+      
+      // 4. Refresh cards
+      await fetchCards();
+    } catch (e) {
+      console.error('Lỗi khi xóa bài lớn:', e);
+      showAnkiToast('❌ Có lỗi xảy ra khi xóa bài lớn.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sendToAnki = useCallback(async (card, forceAdd = false) => {
+    const cardId = card._id || card.id;
+    setAnkiLoadingCards(prev => new Set([...prev, cardId]));
+    try {
+      const res = await fetch(`${API_BASE_URL}/anki/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: card.word,
+          translation: card.translation,
+          category: card.category,
+          forceAdd
+        })
+      });
+      const data = await res.json();
+
+      if (res.status === 503 || data.ankiOffline) {
+        showAnkiToast('⚠️ Anki chưa mở. Vui lòng mở Anki Desktop rồi thử lại.', 'offline', 5000);
+        setAnkiStatus(false);
+        return;
+      }
+      if (data.added) {
+        const updated = { ...ankiSentCards, [cardId]: { score: data.score, deck: data.deck, ts: Date.now() } };
+        setAnkiSentCards(updated);
+        localStorage.setItem('anki_sent_cards', JSON.stringify(updated));
+        showAnkiToast(`✅ Đã thêm vào Anki! ⭐ IMPP ${data.score}/5 — ${data.reason}`, 'success');
+      } else if (data.duplicate) {
+        showAnkiToast(`🔵 Card này đã có trong Anki rồi.`, 'dup');
+      } else if (data.skipped) {
+        showAnkiToast(
+          `⚡ Điểm IMPP: ${data.score}/5 — ${data.reason}. Nhấn giữ để thêm thủ công.`,
+          'skip', 5000
+        );
+      } else if (data.error) {
+        showAnkiToast(`❌ Lỗi: ${data.error}`, 'error');
+      }
+    } catch (err) {
+      showAnkiToast('❌ Không kết nối được backend. Backend đang chạy chưa?', 'error');
+    } finally {
+      setAnkiLoadingCards(prev => { const s = new Set(prev); s.delete(cardId); return s; });
+    }
+  }, [ankiSentCards, showAnkiToast]);
   
   // Automatically reset to page 1 whenever any search or filter state changes
   useEffect(() => {
@@ -675,7 +1535,7 @@ export default function App() {
     if (isLoggedIn && currentUser) {
       fetchCards();
     }
-  }, [isLoggedIn, currentUser]);
+  }, [isLoggedIn, currentUser, selectedModule]);
 
   // Reset local active state when switching modules
   useEffect(() => {
@@ -710,7 +1570,7 @@ export default function App() {
   // Global keydown listener for starting a session with Enter on Wörten Setup screen
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
-      if (rightPanelMode === 'worten' && !activeSessionCards && !modalSessionCards && !showCongrats) {
+      if ((selectedModule === 1 || selectedModule === 2) && rightPanelMode === 'worten' && !activeSessionCards && !modalSessionCards && !showCongrats) {
         if (e.code === 'Enter') {
           e.preventDefault();
           startNewSession();
@@ -720,7 +1580,8 @@ export default function App() {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [rightPanelMode, activeSessionCards, modalSessionCards, showCongrats, allCards, studyCount, studyStateFilter, studyWordClassFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedModule, rightPanelMode, activeSessionCards, modalSessionCards, showCongrats]);
 
   // Update card learned status instantly (for checkboxes) in localStorage
   const handleUpdateSingleCard = async (cardId, isLearned) => {
@@ -748,9 +1609,13 @@ export default function App() {
     if (selectedModule === 1) {
       pool = allCards.filter(card => card.category === 'General');
     } else if (selectedModule === 2) {
-      pool = allCards.filter(card => card.category !== 'General');
+      pool = allCards.filter(card => card.category !== 'General' && card.isPublished === false);
       if (studySpecialties.length > 0) {
-        pool = pool.filter(card => studySpecialties.includes(card.category));
+        pool = pool.filter(card => {
+          const diseaseName = getCardDiseaseName(card);
+          const chosenCategory = manualSpecialties[diseaseName] || card.category;
+          return studySpecialties.includes(chosenCategory);
+        });
       }
     }
 
@@ -885,7 +1750,11 @@ export default function App() {
       list = allCards.filter(card => card.category !== 'General');
       // Filter by specific medical specialty if selected
       if (libCategoryFilter !== 'All') {
-        list = list.filter(card => card.category === libCategoryFilter);
+        list = list.filter(card => {
+          const diseaseName = getCardDiseaseName(card);
+          const chosenCategory = manualSpecialties[diseaseName] || card.category;
+          return chosenCategory === libCategoryFilter;
+        });
       }
     }
 
@@ -943,20 +1812,34 @@ export default function App() {
   // Memoize the grouped clinical topic list for Module 2 to eliminate render blocking lag
   const groupedClinicalCards = useMemo(() => {
     if (selectedModule !== 2) return [];
-    return groupCardsByClinicalTopic(filteredLibraryCards);
-  }, [filteredLibraryCards, selectedModule]);
+    let groups = groupCardsByClinicalTopic(filteredLibraryCards, customLessons);
 
-  const getModuleProgress = (moduleNum) => {
-    let modCards = [];
-    if (moduleNum === 1) {
-      modCards = allCards.filter(c => c.category === 'General');
-    } else {
-      modCards = allCards.filter(c => c.category !== 'General');
+    const isSearching = libSearchQuery.trim() !== '';
+    const isFilteringStatus = libStatusFilter !== 'all';
+    const isFilteringLetter = libLetterFilter !== 'All';
+    const isFilteringCategory = libCategoryFilter !== 'All';
+
+    if (isSearching || isFilteringStatus || isFilteringLetter || isFilteringCategory) {
+      groups = groups.filter(group => {
+        if (group.cards.length > 0) return true;
+        if (isSearching && group.diseaseName.toLowerCase().includes(libSearchQuery.toLowerCase())) {
+          return true;
+        }
+        return false;
+      });
     }
-    if (modCards.length === 0) return 0;
-    const learnedCount = modCards.filter(c => c.isLearned).length;
-    return Math.round((learnedCount / modCards.length) * 100);
-  };
+
+    return groups;
+  }, [filteredLibraryCards, selectedModule, customLessons, libSearchQuery, libStatusFilter, libLetterFilter, libCategoryFilter]);
+
+  const moduleProgress = useMemo(() => {
+    const mod1Cards = allCards.filter(c => c.category === 'General');
+    const mod2Cards = allCards.filter(c => c.category !== 'General');
+    const calcPct = (arr) => arr.length === 0 ? 0 : Math.round((arr.filter(c => c.isLearned).length / arr.length) * 100);
+    return { 1: calcPct(mod1Cards), 2: calcPct(mod2Cards) };
+  }, [allCards]);
+
+  const getModuleProgress = (moduleNum) => moduleProgress[moduleNum] ?? 0;
 
   const getCurrentModuleTotalCardsCount = () => {
     if (selectedModule === 1) {
@@ -1199,32 +2082,78 @@ export default function App() {
           <p className="module-picker-subtitle" style={{ marginTop: '0.5rem' }}>
             Chào mừng <span style={{ color: 'var(--accent-active-color)', fontWeight: '700' }}>{currentUser}</span> đến với TÔI BỊ NGU. Hãy chọn một học phần chuyên biệt dưới đây để bắt đầu ôn luyện.
           </p>
-          <div className="module-grid" style={{ maxWidth: '600px', gridTemplateColumns: 'repeat(2, 1fr)' }}>
-            
-            {/* Học phần 1: Tiếng Đức */}
-            <div className="module-card module-card-deutsch" onClick={() => handleModuleClick(1)} style={{ padding: '3.5rem 2rem' }}>
-              <span className="module-num" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: '5rem', marginBottom: '0.5rem' }}>
-                <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 4px 15px rgba(2, 132, 199, 0.35))', borderRadius: '16px' }}>
-                  <rect width="80" height="80" fill="#0083c2" />
-                  <polygon points="0,0 80,45 0,60" fill="#0284c7" opacity="0.8" />
-                  <polygon points="80,0 80,80 35,45" fill="#0369a1" opacity="0.9" />
-                  <polygon points="0,80 80,80 40,30" fill="#075985" opacity="0.95" />
-                  <text x="14" y="32" fill="#ffffff" fontFamily="var(--font-body)" fontSize="20" fontWeight="400" letterSpacing="-0.5">Test</text>
-                  <text x="14" y="60" fill="#ffffff" fontFamily="var(--font-body)" fontSize="25" fontWeight="500" letterSpacing="-0.5">DaF</text>
-                </svg>
-              </span>
-              <span className="module-name" style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Học phần 1</span>
-              <span style={{ fontSize: '1.1rem', fontWeight: '500', color: 'var(--text-secondary)' }}>Deutsch</span>
-            </div>
+          {/* ── Điều kiện hiện ô Duyệt: chỉ admin + localhost ── */}
+          {(() => {
+            const isLocalhost = typeof window !== 'undefined' &&
+              (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+            const showDuyet = currentUser === 'admin' && isLocalhost;
+            return (
+              <div className="module-grid" style={{
+                maxWidth: showDuyet ? '900px' : '600px',
+                gridTemplateColumns: showDuyet ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)'
+              }}>
 
-            {/* Học phần 2: Y Khoa */}
-            <div className="module-card module-card-medical" onClick={() => handleModuleClick(2)} style={{ padding: '3.5rem 2rem' }}>
-              <span className="module-num" style={{ fontSize: '3.5rem' }}>🩺</span>
-              <span className="module-name" style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Học phần 2</span>
-              <span style={{ fontSize: '1.1rem', fontWeight: '500', color: 'var(--text-secondary)' }}>M2</span>
-            </div>
+                {/* Học phần 1: Tiếng Đức */}
+                <div className="module-card module-card-deutsch" onClick={() => handleModuleClick(1)} style={{ padding: '3.5rem 2rem' }}>
+                  <span className="module-num" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: '5rem', marginBottom: '0.5rem' }}>
+                    <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 4px 15px rgba(2, 132, 199, 0.35))', borderRadius: '16px' }}>
+                      <rect width="80" height="80" fill="#0083c2" />
+                      <polygon points="0,0 80,45 0,60" fill="#0284c7" opacity="0.8" />
+                      <polygon points="80,0 80,80 35,45" fill="#0369a1" opacity="0.9" />
+                      <polygon points="0,80 80,80 40,30" fill="#075985" opacity="0.95" />
+                      <text x="14" y="32" fill="#ffffff" fontFamily="var(--font-body)" fontSize="20" fontWeight="400" letterSpacing="-0.5">Test</text>
+                      <text x="14" y="60" fill="#ffffff" fontFamily="var(--font-body)" fontSize="25" fontWeight="500" letterSpacing="-0.5">DaF</text>
+                    </svg>
+                  </span>
+                  <span className="module-name" style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Học phần 1</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: '500', color: 'var(--text-secondary)' }}>Deutsch</span>
+                </div>
 
-          </div>
+                {/* Học phần 2: Y Khoa */}
+                <div className="module-card module-card-medical" onClick={() => handleModuleClick(2)} style={{ padding: '3.5rem 2rem' }}>
+                  <span className="module-num" style={{ fontSize: '3.5rem' }}>🩺</span>
+                  <span className="module-name" style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Học phần 2</span>
+                  <span style={{ fontSize: '1.1rem', fontWeight: '500', color: 'var(--text-secondary)' }}>M2</span>
+                </div>
+
+                {/* Ô DUYỆT — chỉ admin + localhost */}
+                {showDuyet && (
+                  <div
+                    className="module-card"
+                    onClick={() => setSelectedModule('duyet')}
+                    style={{
+                      padding: '3.5rem 2rem',
+                      background: 'rgba(239,68,68,0.06)',
+                      border: '1.5px dashed rgba(239,68,68,0.35)',
+                      cursor: 'pointer',
+                      transition: 'all 0.25s',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      borderRadius: '20px',
+                      position: 'relative',
+                    }}
+                  >
+                    {/* LOCAL-ONLY badge */}
+                    <span style={{
+                      position: 'absolute', top: '0.7rem', right: '0.7rem',
+                      fontSize: '0.6rem', fontWeight: '800', textTransform: 'uppercase',
+                      background: 'rgba(239,68,68,0.2)', color: '#fca5a5',
+                      border: '1px solid rgba(239,68,68,0.3)',
+                      padding: '0.15rem 0.5rem', borderRadius: '6px', letterSpacing: '0.5px'
+                    }}>LOCAL ONLY</span>
+
+                    <span style={{ fontSize: '3.5rem' }}>🛠️</span>
+                    <span className="module-name" style={{ fontSize: '1.4rem', marginTop: '0.5rem', color: '#fca5a5' }}>DUYỆT</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '500', color: 'rgba(252,165,165,0.6)' }}>Admin tools</span>
+                  </div>
+                )}
+
+              </div>
+            );
+          })()}
+
         </div>
 
         {/* --- PREMIUM 2ND-LAYER PIN MODAL FOR ADMIN1+ --- */}
@@ -1337,6 +2266,11 @@ export default function App() {
     );
   }
 
+  // ── DUYỆT PANEL — admin only, localhost only ─────────────────────────
+  if (selectedModule === 'duyet') {
+    return <DuyetPanel onBack={() => setSelectedModule(null)} />;
+  }
+
   const selectedModuleVal = selectedModule;
 
   return (
@@ -1386,9 +2320,11 @@ export default function App() {
         {/* Left Side: Sidebar navigation tab buttons */}
         <aside className="sidebar-panel responsive-sidebar" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
           
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '-0.4rem' }}>
-            Menu điều hướng
-          </div>
+          {selectedModule !== 2 && (
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '-0.4rem' }}>
+              Menu điều hướng
+            </div>
+          )}
 
            {/* Navigation Tab 1: Los geht's Study Center */}
            <div 
@@ -1401,7 +2337,10 @@ export default function App() {
                cursor: 'pointer',
                transition: 'all 0.25s ease-in-out',
                borderColor: rightPanelMode === 'worten' || rightPanelMode === 'flashcard' ? 'var(--accent-active-color)' : 'var(--glass-border)',
-               boxShadow: rightPanelMode === 'worten' || rightPanelMode === 'flashcard' ? '0 0 15px var(--accent-active-glow)' : 'none'
+               boxShadow: rightPanelMode === 'worten' || rightPanelMode === 'flashcard' ? '0 0 15px var(--accent-active-glow)' : 'none',
+               display: 'flex',
+               alignItems: 'center',
+               gap: '1rem'
              }}
              className="nav-tab-btn"
            >
@@ -1440,7 +2379,7 @@ export default function App() {
                 Bibliothek
               </h3>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                Duyệt & Tìm kiếm {getCurrentModuleTotalCardsCount()} từ vựng.
+                {selectedModule === 2 ? "Tra cứu ca bệnh lâm sàng" : "Tra cứu 1000+ từ vựng gốc."}
               </p>
             </div>
           </div>
@@ -1474,7 +2413,6 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ flex: 1 }}></div>
 
           {/* Progress display in Sidebar bottom */}
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '1rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -1484,7 +2422,7 @@ export default function App() {
               <span style={{ color: 'var(--status-learned)', fontWeight: '700' }}>{getModuleProgress(selectedModule)}%</span>
             </div>
             <div style={{ width: '100%', height: '6px', background: 'var(--bg-primary)', borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ width: `${getModuleProgress(selectedModule)}%`, height: '100%', background: 'var(--status-learned)' }}></div>
+              <div style={{ width: `${getModuleProgress(selectedModule)}%`, height: '100%', background: 'var(--status-learned)', transition: 'width 0.6s ease-out' }}></div>
             </div>
           </div>
 
@@ -1792,7 +2730,21 @@ export default function App() {
             </div>
           )}
 
-          {/* 3. BIBLIOTHEK VIEWER */}
+          {/* 3. DUYỆT VIEWER — Review Queue with Public / Delete actions */}
+          {rightPanelMode === 'duyet' && (
+              <DuyetView 
+                cards={allCards} 
+                selectedModule={selectedModule} 
+                apiBaseUrl={API_BASE_URL} 
+                showAnkiToast={showAnkiToast} 
+                setRocketState={setRocketState}
+                setModalSessionCards={setModalSessionCards}
+                setModalStartIndex={setModalStartIndex}
+              />
+            )}
+
+
+          {/* 3b. BIBLIOTHEK VIEWER (hidden but kept for compatibility) */}
           {rightPanelMode === 'bibliothek' && (
             <div style={{
               display: 'flex',
@@ -1805,34 +2757,37 @@ export default function App() {
               
               {/* Header with Search and Quick Filters */}
               <div className="lib-header-container" style={{
-                background: 'var(--bg-tertiary)',
+                background: 'rgba(15, 20, 35, 0.45)',
+                backdropFilter: 'blur(12px)',
                 borderBottom: '1px solid var(--glass-border)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '1.2rem'
+                gap: '0.65rem',
+                padding: '0.8rem 1.4rem'
               }}>
                 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', color: 'white' }}>
+                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', fontWeight: '800', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
                       {selectedModule === 2 ? "Thư viện lâm sàng (Klinik)" : "Thư viện từ vựng (Bibliothek)"}
                     </h2>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                      {selectedModule === 2 
-                        ? "Duyệt các ca bệnh lâm sàng M2 tinh giản. Nhấp để xem chi tiết dạng Flashcard." 
-                        : "Duyệt từ gốc cực kỳ tinh giản. Nhấp để tra cứu chi tiết dạng Flashcard."}
-                    </p>
+                    {selectedModule === 1 && (
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.1rem', margin: 0 }}>
+                        Duyệt từ gốc cực kỳ tinh giản. Nhấp để tra cứu chi tiết dạng Flashcard.
+                      </p>
+                    )}
                   </div>
+
                   <button 
                     onClick={() => setRightPanelMode('worten')}
                     style={{
                       background: 'var(--bg-primary)',
                       border: '1px solid var(--glass-border)',
                       color: 'var(--text-primary)',
-                      padding: '0.5rem 1rem',
-                      borderRadius: '8px',
+                      padding: '0.35rem 0.85rem',
+                      borderRadius: '6px',
                       cursor: 'pointer',
-                      fontSize: '0.8rem',
+                      fontSize: '0.75rem',
                       fontWeight: '600'
                     }}
                   >
@@ -1841,11 +2796,11 @@ export default function App() {
                 </div>
 
                 {/* Search input and status filters */}
-                <div className="lib-filter-row" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                <div className="lib-filter-row" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                   
                   {/* Modern Search Bar */}
                   <div style={{ flex: 1, position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}>🔍</span>
+                    <span style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.8rem' }}>🔍</span>
                     <input 
                       type="text" 
                       placeholder={selectedModule === 2 
@@ -1855,10 +2810,11 @@ export default function App() {
                       value={libSearchQuery}
                       onChange={(e) => setLibSearchQuery(e.target.value)}
                       style={{
-                        paddingLeft: '2.8rem',
+                        padding: '0.4rem 1.8rem 0.4rem 2.1rem',
                         background: 'var(--bg-primary)',
-                        fontSize: '0.95rem',
-                        borderRadius: '10px'
+                        fontSize: '0.82rem',
+                        borderRadius: '6px',
+                        height: '32px'
                       }}
                     />
                     {libSearchQuery && (
@@ -1866,14 +2822,14 @@ export default function App() {
                         onClick={() => setLibSearchQuery('')}
                         style={{
                           position: 'absolute',
-                          right: '1rem',
+                          right: '0.7rem',
                           top: '50%',
                           transform: 'translateY(-50%)',
                           background: 'transparent',
                           border: 'none',
                           color: 'var(--text-muted)',
                           cursor: 'pointer',
-                          fontSize: '0.9rem'
+                          fontSize: '0.8rem'
                         }}
                       >
                         ✕
@@ -1883,12 +2839,12 @@ export default function App() {
 
                   {/* Specialty Dropdown for Medicine Module */}
                   {selectedModule === 2 && (
-                    <div style={{ width: '280px' }}>
+                    <div style={{ width: '220px' }}>
                       <select 
                         className="form-select" 
                         value={libCategoryFilter}
                         onChange={(e) => setLibCategoryFilter(e.target.value)}
-                        style={{ background: 'var(--bg-primary)', padding: '0.75rem', borderRadius: '10px' }}
+                        style={{ background: 'var(--bg-primary)', padding: '0.4rem 1.8rem 0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.82rem', height: '32px', cursor: 'pointer' }}
                       >
                         <option value="All">Tất cả chuyên khoa ({medicalSpecialties.length})</option>
                         {medicalSpecialties.map(spec => (
@@ -1900,12 +2856,12 @@ export default function App() {
 
                   {/* Word Class Dropdown for German Module */}
                   {selectedModule === 1 && (
-                    <div style={{ width: '220px' }}>
+                    <div style={{ width: '180px' }}>
                       <select 
                         className="form-select" 
                         value={libWordClassFilter}
                         onChange={(e) => setLibWordClassFilter(e.target.value)}
-                        style={{ background: 'var(--bg-primary)', padding: '0.75rem', borderRadius: '10px' }}
+                        style={{ background: 'var(--bg-primary)', padding: '0.4rem 1.8rem 0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.82rem', height: '32px', cursor: 'pointer' }}
                       >
                         <option value="all">Tất cả loại từ</option>
                         <option value="noun">Danh từ (Nouns)</option>
@@ -1918,22 +2874,25 @@ export default function App() {
                   )}
 
                   {/* Learned Status Filters */}
-                  <div className="status-badge-filter" style={{ background: 'var(--bg-primary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                  <div className="status-badge-filter" style={{ background: 'var(--bg-primary)', padding: '0.15rem', borderRadius: '6px', border: '1px solid var(--glass-border)', display: 'flex', gap: '0.15rem' }}>
                     <button 
                       className={`filter-badge ${libStatusFilter === 'all' ? 'active' : ''}`}
                       onClick={() => setLibStatusFilter('all')}
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
                     >
                       Tất cả
                     </button>
                     <button 
                       className={`filter-badge ${libStatusFilter === 'unlearned' ? 'active' : ''}`}
                       onClick={() => setLibStatusFilter('unlearned')}
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
                     >
                       Chưa học
                     </button>
                     <button 
                       className={`filter-badge ${libStatusFilter === 'learned' ? 'active' : ''}`}
                       onClick={() => setLibStatusFilter('learned')}
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
                     >
                       Đã học
                     </button>
@@ -1942,35 +2901,108 @@ export default function App() {
                 </div>
 
                 {/* Alphabet filters */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', marginRight: '0.5rem' }}>Lọc chữ cái:</span>
-                  <div className="alphabet-filter" style={{ flex: 1, marginBottom: 0, paddingBottom: 0 }}>
-                    <button 
-                      className={`letter-btn ${libLetterFilter === 'All' ? 'active' : ''}`}
-                      onClick={() => setLibLetterFilter('All')}
-                      style={{ padding: '0.3rem 0.6rem' }}
-                    >
-                      Tất cả
-                    </button>
-                    {alphabet.map(letter => (
+                {selectedModule === 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', marginRight: '0.2rem', whiteSpace: 'nowrap' }}>Lọc chữ cái:</span>
+                    <div className="alphabet-filter" style={{ flex: 1, marginBottom: 0, paddingBottom: 0, gap: '0.2rem', display: 'flex', overflowX: 'auto' }}>
                       <button 
-                        key={letter} 
-                        className={`letter-btn ${libLetterFilter === letter ? 'active' : ''}`}
-                        onClick={() => setLibLetterFilter(letter)}
-                        style={{ padding: '0.3rem 0.6rem' }}
+                        className={`letter-btn ${libLetterFilter === 'All' ? 'active' : ''}`}
+                        onClick={() => setLibLetterFilter('All')}
+                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', borderRadius: '4px' }}
                       >
-                        {letter}
+                        Tất cả
                       </button>
-                    ))}
+                      {alphabet.map(letter => (
+                        <button 
+                          key={letter} 
+                          className={`letter-btn ${libLetterFilter === letter ? 'active' : ''}`}
+                          onClick={() => setLibLetterFilter(letter)}
+                          style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', borderRadius: '4px' }}
+                        >
+                          {letter}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* Add Custom Lesson Row for Module 2 */}
+                {selectedModule === 2 && (
+                  <div style={{
+                    display: 'flex',
+                    gap: '0.5rem',
+                    alignItems: 'center',
+                    marginTop: '0.1rem',
+                    fontSize: '0.78rem',
+                    padding: '0 0.1rem'
+                  }}>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                      ➕ Thêm bài lớn:
+                    </span>
+                    
+                    <input
+                      type="text"
+                      placeholder="Tên bài mới..."
+                      value={newLessonInputVal}
+                      onChange={e => setNewLessonInputVal(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleAddNewLesson(); }}
+                      style={{
+                        width: '160px',
+                        padding: '0.3rem 0.5rem',
+                        borderRadius: '6px',
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        color: 'white',
+                        fontSize: '0.75rem',
+                        outline: 'none',
+                      }}
+                    />
+
+                    <select
+                      value={newLessonSpecialty}
+                      onChange={e => setNewLessonSpecialty(e.target.value)}
+                      style={{
+                        width: '130px',
+                        padding: '0.3rem 0.4rem',
+                        borderRadius: '6px',
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        color: 'white',
+                        fontSize: '0.75rem',
+                        outline: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {medicalSpecialties.map(spec => (
+                        <option key={spec} value={spec} style={{ background: '#0a0b20' }}>{spec}</option>
+                      ))}
+                    </select>
+
+                    <button
+                      onClick={handleAddNewLesson}
+                      style={{
+                        background: 'rgba(99,102,241,0.15)',
+                        border: '1px solid rgba(99,102,241,0.25)',
+                        color: '#a5b4fc',
+                        padding: '0.3rem 0.8rem',
+                        borderRadius: '6px',
+                        fontSize: '0.75rem',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      Thêm bài
+                    </button>
+                  </div>
+                )}
 
               </div>
 
               {/* Scrollable Word Grid */}
               <div ref={libraryListRef} style={{ flex: 1, overflowY: 'auto', padding: '1.5rem 2rem' }} className="library-large-list">
 
-                {filteredLibraryCards.length === 0 ? (
+                {(selectedModule === 1 ? filteredLibraryCards.length === 0 : groupedClinicalCards.length === 0) ? (
                   <div style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
                     <span style={{ fontSize: '3rem', display: 'block', marginBottom: '1rem' }}>🔍</span>
                     <h3>Không tìm thấy thẻ nào phù hợp</h3>
@@ -1988,71 +3020,257 @@ export default function App() {
                           <>
                             {paginatedGroups.map(({ diseaseName, displayName, cards: groupCards }) => {
                               const learnedCount = groupCards.filter(c => c.isLearned).length;
-                              const allLearned = learnedCount === groupCards.length;
+                              const allLearned = groupCards.length > 0 && learnedCount === groupCards.length;
+                              const isExpanded = !!expandedThemes[diseaseName];
+                              const hasCards = groupCards.length > 0;
+                              
                               return (
                                  <div key={diseaseName} style={{ marginBottom: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', overflow: 'hidden' }}>
-                                  {/* Group header — disease name */}
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.7rem 1.1rem', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                    <span style={{ fontWeight: '700', fontSize: '0.95rem', color: 'white' }}>{displayName}</span>
-                                    <span style={{ fontSize: '0.7rem', color: allLearned ? '#34d399' : 'var(--text-muted)', flexShrink: 0, marginLeft: '0.5rem', fontWeight: '600' }}>
-                                      {learnedCount}/{groupCards.length} ✓
-                                    </span>
-                                  </div>
-                                  {/* Cards inside group */}
-                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    {groupCards.map((card, idx) => {
-                                      const cardId = card._id || card.id;
-                                      const cardNum = card.word.match(/\(Card\s*#(\d+)\)/i);
-                                      const num = cardNum ? cardNum[1] : (idx + 1);
-                                      const subtopicLabel = getSubtopicLabel(card);
-                                      // Extract the question line
-                                      const lines = card.word.split('\n').map(l => l.trim()).filter(Boolean);
-                                      const questionLine = lines[1] || lines[0] || '';
-                                      const preview = questionLine.replace(/\{\{c\d+::[^}]*\}\}/g, '[...]').substring(0, 80);
-                                      return (
-                                        <div
-                                          key={cardId}
-                                          className="library-large-card-compact"
-                                          onClick={() => {
-                                            setModalSessionCards(filteredLibraryCards);
-                                            setModalStartIndex(filteredLibraryCards.findIndex(c => (c._id || c.id) === cardId));
-                                          }}
-                                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.55rem 1.1rem', borderBottom: idx < groupCards.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', cursor: 'pointer', transition: 'background 0.15s' }}
-                                        >
-                                          {/* Number */}
-                                          <span style={{ fontSize: '0.68rem', fontWeight: '700', color: 'rgba(165,180,252,0.5)', minWidth: '1.5rem', flexShrink: 0 }}>#{num}</span>
-                                          {/* Question preview */}
-                                          <span style={{ flex: 1, fontSize: '0.82rem', color: card.isLearned ? '#86efac' : 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {preview}
-                                          </span>
-                                          {/* Subtopic badge */}
-                                          <span style={{ fontSize: '0.65rem', fontWeight: '600', color: '#94a3b8', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '0.1rem 0.5rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                                            {subtopicLabel}
-                                          </span>
-                                          {/* Checkbox */}
-                                          <div
-                                            onClick={(e) => { e.stopPropagation(); handleUpdateSingleCard(cardId, !card.isLearned); }}
-                                            style={{ width: '20px', height: '20px', borderRadius: '5px', border: card.isLearned ? '1.5px solid var(--status-learned)' : '1.5px solid rgba(255,255,255,0.2)', background: card.isLearned ? 'rgba(16,185,129,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--status-learned)', fontWeight: '900', fontSize: '0.8rem', transition: 'all 0.15s', flexShrink: 0 }}
-                                          >
-                                            {card.isLearned ? '✓' : ''}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
+                                   {/* Group header — disease name */}
+                                   <div 
+                                     onClick={() => {
+                                       if (hasCards) {
+                                         setExpandedThemes(prev => ({ ...prev, [diseaseName]: !prev[diseaseName] }));
+                                       }
+                                     }}
+                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.2rem', background: 'rgba(255,255,255,0.04)', cursor: hasCards ? 'pointer' : 'default', transition: 'background 0.2s' }}
+                                     className={hasCards ? "lib-group-header-hover" : ""}
+                                   >
+                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                       {hasCards ? (
+                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', userSelect: 'none', width: '12px' }}>
+                                           {isExpanded ? '▼' : '▶'}
+                                         </span>
+                                       ) : (
+                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', opacity: 0.3, userSelect: 'none', width: '12px' }}>
+                                           •
+                                         </span>
+                                       )}
+                                       <span style={{ fontWeight: '700', fontSize: '0.98rem', color: 'white' }}>📖 {displayName}</span>
+                                     </div>
+                                     
+                                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                       <span style={{ fontSize: '0.75rem', color: allLearned ? '#34d399' : 'var(--text-muted)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                         {hasCards && (
+                                           <>
+                                             <span>{learnedCount}/{groupCards.length} ✓</span>
+                                             <span 
+                                               onClick={(e) => {
+                                                 e.stopPropagation();
+                                                 setModalSessionCards(groupCards);
+                                                 setModalStartIndex(0);
+                                               }}
+                                               style={{ color: '#fbbf24', fontSize: '0.8rem', fontWeight: '700', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', padding: '0.15rem 0.5rem', borderRadius: '6px', cursor: 'pointer' }}
+                                             >
+                                               Ôn tập →
+                                             </span>
+                                           </>
+                                         )}
+                                       </span>
+
+                                       <select
+                                         value={manualSpecialties[diseaseName] || groupCards[0]?.category || 'Innere Medizin'}
+                                         onChange={(e) => {
+                                           const updated = { ...manualSpecialties, [diseaseName]: e.target.value };
+                                           setManualSpecialties(updated);
+                                           localStorage.setItem('manual_specialties', JSON.stringify(updated));
+                                         }}
+                                         onClick={(e) => e.stopPropagation()}
+                                         style={{
+                                           fontSize: '0.78rem',
+                                           padding: '0.3rem 0.6rem',
+                                           background: 'var(--bg-primary)',
+                                           border: '1px solid var(--glass-border)',
+                                           borderRadius: '8px',
+                                           color: 'white',
+                                           cursor: 'pointer'
+                                         }}
+                                       >
+                                         {medicalSpecialties.map(spec => (
+                                           <option key={spec} value={spec}>{spec}</option>
+                                         ))}
+                                       </select>
+
+                                       {customLessons.includes(diseaseName) && (
+                                         <button
+                                           onClick={(e) => {
+                                             e.stopPropagation();
+                                             handleDeleteCustomLesson(diseaseName, groupCards);
+                                           }}
+                                           style={{
+                                             background: 'rgba(239, 68, 68, 0.15)',
+                                             border: '1px solid rgba(239, 68, 68, 0.3)',
+                                             color: '#fca5a5',
+                                             padding: '0.3rem 0.6rem',
+                                             borderRadius: '8px',
+                                             fontSize: '0.78rem',
+                                             fontWeight: '600',
+                                             cursor: 'pointer',
+                                             transition: 'all 0.15s'
+                                           }}
+                                           title="Xóa bài lớn và tất cả các thẻ của bài này"
+                                         >
+                                           🗑️ Xóa bài
+                                         </button>
+                                       )}
+                                     </div>
+                                   </div>
+
+                                   {/* Expanded Cards list inside theme accordion */}
+                                   {hasCards && isExpanded && (
+                                     <div style={{ display: 'flex', flexDirection: 'column', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                       {groupCards.map((card, idx) => {
+                                          const cardId = card._id || card.id;
+                                          const cardNum = card.word.match(/\(Card\s*#(\d+)\)/i);
+                                          const num = cardNum ? cardNum[1] : (idx + 1);
+                                          
+                                          // Simple card preview
+                                          const lines = card.word.split('\n').map(l => l.trim()).filter(Boolean);
+                                          const questionLine = lines[1] || lines[0] || '';
+                                          const preview = questionLine.replace(/\{\{c\d+::([^}]*)\}\}/g, ' [...] ');
+
+                                          return (
+                                            <div
+                                              key={cardId}
+                                              className="library-large-card-compact"
+                                              onClick={() => {
+                                                setModalSessionCards(groupCards);
+                                                setModalStartIndex(idx);
+                                              }}
+                                              style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                gap: '1.2rem',
+                                                padding: '0.9rem 1.2rem',
+                                                margin: '0.6rem 1.2rem',
+                                                borderRadius: '12px',
+                                                background: card.isLearned 
+                                                  ? 'rgba(16, 185, 129, 0.03)' 
+                                                  : 'rgba(15, 23, 42, 0.45)',
+                                                border: card.isLearned 
+                                                  ? '1px solid rgba(16, 185, 129, 0.25)' 
+                                                  : '1px solid rgba(255, 255, 255, 0.07)',
+                                                borderLeft: `4px solid ${card.isLearned ? '#10b981' : '#6366f1'}`,
+                                                cursor: 'pointer',
+                                                boxShadow: card.isLearned 
+                                                  ? '0 4px 12px rgba(16, 185, 129, 0.04)' 
+                                                  : '0 4px 12px rgba(0, 0, 0, 0.15)',
+                                                backdropFilter: 'blur(8px)',
+                                                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                                              }}
+                                              onMouseEnter={(e) => {
+                                                e.currentTarget.style.background = card.isLearned 
+                                                  ? 'rgba(16, 185, 129, 0.08)' 
+                                                  : 'rgba(99, 102, 241, 0.07)';
+                                                e.currentTarget.style.borderColor = card.isLearned 
+                                                  ? 'rgba(16, 185, 129, 0.45)' 
+                                                  : 'rgba(99, 102, 241, 0.35)';
+                                                e.currentTarget.style.boxShadow = card.isLearned 
+                                                  ? '0 6px 20px rgba(16, 185, 129, 0.15)' 
+                                                  : '0 6px 20px rgba(99, 102, 241, 0.15)';
+                                                e.currentTarget.style.transform = 'translateY(-2px) translateX(3px)';
+                                              }}
+                                              onMouseLeave={(e) => {
+                                                e.currentTarget.style.background = card.isLearned 
+                                                  ? 'rgba(16, 185, 129, 0.03)' 
+                                                  : 'rgba(15, 23, 42, 0.45)';
+                                                e.currentTarget.style.borderColor = card.isLearned 
+                                                  ? 'rgba(16, 185, 129, 0.25)' 
+                                                  : '1px solid rgba(255, 255, 255, 0.07)';
+                                                e.currentTarget.style.boxShadow = card.isLearned 
+                                                  ? '0 4px 12px rgba(16, 185, 129, 0.04)' 
+                                                  : '0 4px 12px rgba(0, 0, 0, 0.15)';
+                                                e.currentTarget.style.transform = 'none';
+                                               }}
+                                             >
+                                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: 0 }}>
+                                                 <span style={{
+                                                   fontSize: '0.7rem',
+                                                   fontWeight: '700',
+                                                   background: card.isLearned ? 'rgba(16, 185, 129, 0.12)' : 'rgba(99, 102, 241, 0.1)',
+                                                   color: card.isLearned ? '#34d399' : '#a5b4fc',
+                                                   border: `1px solid ${card.isLearned ? 'rgba(16, 185, 129, 0.25)' : 'rgba(99, 102, 241, 0.25)'}`,
+                                                   borderRadius: '20px',
+                                                   padding: '0.2rem 0.6rem',
+                                                   whiteSpace: 'nowrap',
+                                                   flexShrink: 0
+                                                 }}>
+                                                   Card #${num}
+                                                 </span>
+                                                 {card.isLearned ? (
+                                                   <span style={{ fontSize: '0.65rem', fontWeight: '600', color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '0.15rem 0.4rem', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>Đã thuộc</span>
+                                                 ) : (
+                                                   <span style={{ fontSize: '0.65rem', fontWeight: '600', color: '#fca5a5', background: 'rgba(239, 68, 68, 0.15)', padding: '0.15rem 0.4rem', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>Chưa thuộc</span>
+                                                 )}
+                                                 <span style={{
+                                                   fontSize: '0.85rem',
+                                                   color: card.isLearned ? '#a7f3d0' : 'rgba(255, 255, 255, 0.85)',
+                                                   overflow: 'hidden',
+                                                   textOverflow: 'ellipsis',
+                                                   display: '-webkit-box',
+                                                   WebkitLineClamp: 2,
+                                                   WebkitBoxOrient: 'vertical',
+                                                   lineHeight: '1.4',
+                                                   fontWeight: '500'
+                                                 }}>
+                                                   {preview}
+                                                 </span>
+                                               </div>
+                                               
+                                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexShrink: 0 }}>
+                                                 <div
+                                                   onClick={(e) => { e.stopPropagation(); handleUpdateSingleCard(cardId, !card.isLearned); }}
+                                                   style={{
+                                                     width: '22px',
+                                                     height: '22px',
+                                                     borderRadius: '50%',
+                                                     border: card.isLearned ? '2px solid #10b981' : '2px solid rgba(255,255,255,0.35)',
+                                                     background: card.isLearned ? '#10b981' : 'rgba(255,255,255,0.03)',
+                                                     display: 'flex',
+                                                     alignItems: 'center',
+                                                     justifyContent: 'center',
+                                                     cursor: 'pointer',
+                                                     color: 'white',
+                                                     fontWeight: '800',
+                                                     fontSize: '0.75rem',
+                                                     transition: 'all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                                                     boxShadow: card.isLearned ? '0 0 10px rgba(16, 185, 129, 0.5)' : 'none',
+                                                   }}
+                                                   onMouseEnter={(e) => {
+                                                     e.currentTarget.style.transform = 'scale(1.15)';
+                                                     if (!card.isLearned) {
+                                                       e.currentTarget.style.borderColor = '#6366f1';
+                                                       e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)';
+                                                     }
+                                                   }}
+                                                   onMouseLeave={(e) => {
+                                                     e.currentTarget.style.transform = 'scale(1)';
+                                                     if (!card.isLearned) {
+                                                       e.currentTarget.style.borderColor = 'rgba(255,255,255,0.35)';
+                                                       e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                                                     }
+                                                   }}
+                                                   title={card.isLearned ? 'Đánh dấu chưa thuộc' : 'Đánh dấu đã thuộc'}
+                                                 >
+                                                   {card.isLearned ? '✓' : ''}
+                                                 </div>
+                                               </div>
+                                             </div>
+                                          );
+                                        })}
+                                     </div>
+                                   )}
+                                 </div>
                               );
                             })}
                             
                             {/* Pagination Controls */}
-                            {totalPages > 1 && (
-                              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', padding: '1.5rem 0', marginTop: '1.5rem', borderTop: '1px solid var(--glass-border)' }}>
-                                <button disabled={libCurrentPage === 1} onClick={() => setLibCurrentPage(p => Math.max(1, p - 1))} className="btn-nav" style={{ width: '36px', height: '36px' }}>←</button>
-                                <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
-                                  Chủ đề <span style={{ color: 'var(--accent-active-color)' }}>{(libCurrentPage - 1) * groupsPerPage + 1} - {Math.min(libCurrentPage * groupsPerPage, groupedClinicalCards.length)}</span> trên {groupedClinicalCards.length}
-                                </span>
-                                <button disabled={libCurrentPage === totalPages} onClick={() => setLibCurrentPage(p => Math.min(totalPages, p + 1))} className="btn-nav" style={{ width: '36px', height: '36px' }}>→</button>
-                              </div>
+                            {renderLibPagination(
+                              libCurrentPage,
+                              totalPages,
+                              setLibCurrentPage,
+                              <>Chủ đề <span style={{ color: 'var(--accent-active-color)' }}>{(libCurrentPage - 1) * groupsPerPage + 1} - {Math.min(libCurrentPage * groupsPerPage, groupedClinicalCards.length)}</span> trên {groupedClinicalCards.length}</>
                             )}
                           </>
                         );
@@ -2086,14 +3304,11 @@ export default function App() {
                             </div>
                             
                             {/* Pagination Controls */}
-                            {totalPages > 1 && (
-                              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', padding: '1.5rem 0', marginTop: '1.5rem', borderTop: '1px solid var(--glass-border)' }}>
-                                <button disabled={libCurrentPage === 1} onClick={() => setLibCurrentPage(p => Math.max(1, p - 1))} className="btn-nav" style={{ width: '36px', height: '36px' }}>←</button>
-                                <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
-                                  Từ vựng <span style={{ color: 'var(--accent-active-color)' }}>{(libCurrentPage - 1) * itemsPerPage + 1} - {Math.min(libCurrentPage * itemsPerPage, filteredLibraryCards.length)}</span> trên {filteredLibraryCards.length}
-                                </span>
-                                <button disabled={libCurrentPage === totalPages} onClick={() => setLibCurrentPage(p => Math.min(totalPages, p + 1))} className="btn-nav" style={{ width: '36px', height: '36px' }}>→</button>
-                              </div>
+                            {renderLibPagination(
+                              libCurrentPage,
+                              totalPages,
+                              setLibCurrentPage,
+                              <>Từ vựng <span style={{ color: 'var(--accent-active-color)' }}>{(libCurrentPage - 1) * itemsPerPage + 1} - {Math.min(libCurrentPage * itemsPerPage, filteredLibraryCards.length)}</span> trên {filteredLibraryCards.length}</>
                             )}
                           </>
                         );
@@ -2175,8 +3390,8 @@ export default function App() {
                   studyHistory.map((card, index) => {
                     const cardId = card._id || card.id;
                     return (
-                      <div 
-                        key={cardId} 
+                      <div
+                        key={cardId}
                         style={{
                           background: 'var(--glass-bg)',
                           border: '1px solid var(--glass-border)',
@@ -2207,21 +3422,17 @@ export default function App() {
                           </span>
                         </div>
 
-                        {/* Direct Tick checkbox */}
-                        <div 
+                        {/* Direct Tick checkbox — FIX: use correct user-scoped localStorage key */}
+                        <div
                           onClick={(e) => {
                             e.stopPropagation();
                             handleUpdateSingleCard(cardId, !card.isLearned);
-                            // Also update local studyHistory state so the checkbox reflects immediately
                             setStudyHistory(prev => {
                               const updated = prev.map(c => {
                                 const cId = c._id || c.id;
-                                if (cId === cardId) {
-                                  return { ...c, isLearned: !c.isLearned };
-                                }
-                                return c;
+                                return cId === cardId ? { ...c, isLearned: !c.isLearned } : c;
                               });
-                              localStorage.setItem(`study_history_words_module_${selectedModule}`, JSON.stringify(updated));
+                              localStorage.setItem(`study_history_words_user_${currentUser}_module_${selectedModule}`, JSON.stringify(updated));
                               return updated;
                             });
                           }}
@@ -2253,6 +3464,271 @@ export default function App() {
               </div>
 
             </div>
+          )}
+
+          {/* 5. MEDDE HUB (ECOSYSTEM) */}
+          {rightPanelMode === 'medde_hub' && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              width: '100%',
+              height: '100%',
+              background: 'var(--bg-secondary)',
+              animation: 'fadeIn 0.3s ease-out'
+            }}>
+              
+              {/* Header with Title */}
+              <div style={{
+                padding: '1.5rem 2rem',
+                background: 'var(--bg-tertiary)',
+                borderBottom: '1px solid var(--glass-border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexShrink: 0
+              }}>
+                <div>
+                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', color: 'white', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    Sổ tay Tra Cứu MedDE
+                  </h2>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                    Lịch sử tra cứu y khoa tự động được đồng bộ trực tiếp từ MedDE Chrome Extension của bạn.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setRightPanelMode('worten')}
+                  style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--glass-border)',
+                    color: 'var(--text-primary)',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    fontWeight: '600'
+                  }}
+                >
+                  ✕ Đóng sổ tay
+                </button>
+              </div>
+
+              {/* Main Content Layout - Split View */}
+              {loadingMedde && meddeHistory.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ border: '4px solid rgba(255, 255, 255, 0.1)', borderTop: '4px solid var(--accent-primary)', borderRadius: '50%', width: '40px', height: '40px', animation: 'spin 1s linear infinite' }} />
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Đang tải lịch sử tra cứu...</p>
+                </div>
+              ) : meddeHistory.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', gap: '1rem', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: '4rem' }}>📖</span>
+                  <h3>Chưa có lịch sử tra cứu nào</h3>
+                  <p style={{ fontSize: '0.85rem', maxWidth: '360px', textAlign: 'center' }}>
+                    Hãy bôi đen và dịch các thuật ngữ y khoa Đức-Việt bằng tiện ích mở rộng MedDE trên trình duyệt để lịch sử tự động xuất hiện tại đây.
+                  </p>
+                  <button onClick={fetchMeddeHistory} className="btn-secondary" style={{ padding: '0.5rem 1.2rem', fontSize: '0.8rem' }}>Tải lại</button>
+                </div>
+              ) : (
+                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+                  
+                  {/* Left List Pane */}
+                  <div style={{ width: '38%', borderRight: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', overflowY: 'auto', background: 'rgba(0,0,0,0.1)' }}>
+                    {meddeHistory.map((item, idx) => {
+                      const id = item._id || item.id;
+                      const isSelected = selectedLookupId === id;
+                      const isQuick = item.type === 'quick';
+                      const wordPreview = item.german || item.word;
+
+                      return (
+                        <div
+                          key={id}
+                          onClick={() => setSelectedLookupId(id)}
+                          style={{
+                            padding: '1.2rem 1.5rem',
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            cursor: 'pointer',
+                            background: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+                            borderLeft: isSelected ? '4px solid var(--accent-primary)' : '4px solid transparent',
+                            transition: 'all 0.2s',
+                            position: 'relative'
+                          }}
+                          className="medde-history-item"
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: '0.5rem' }}>
+                            <h4 style={{ color: 'white', fontWeight: '700', fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>
+                              {wordPreview}
+                            </h4>
+                            <span style={{
+                              fontSize: '0.62rem', fontWeight: '700', padding: '0.1rem 0.4rem', borderRadius: '4px', textTransform: 'uppercase',
+                              background: isQuick ? 'rgba(59,130,246,0.18)' : 'rgba(168,85,247,0.18)',
+                              color: isQuick ? '#60a5fa' : '#c084fc',
+                              border: `1px solid ${isQuick ? 'rgba(59,130,246,0.3)' : 'rgba(168,85,247,0.3)'}`
+                            }}>
+                              {isQuick ? 'Quick' : 'Deep'}
+                            </span>
+                          </div>
+
+                          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '0.3rem' }}>
+                            {isQuick ? item.translation?.viet : item.translation?.dinh_nghia}
+                          </p>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem' }}>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                              {new Date(item.timestamp).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                            </span>
+                            <button
+                              onClick={(e) => handleDeleteMeddeItem(id, e)}
+                              style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.85rem', cursor: 'pointer', opacity: 0.7, padding: '2px' }}
+                              title="Xóa lịch sử"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right Detail Pane */}
+                  <div style={{ width: '62%', display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '2.5rem' }}>
+                    {(() => {
+                      const activeItem = meddeHistory.find(item => (item._id || item.id) === selectedLookupId) || meddeHistory[0];
+                      if (!activeItem) return null;
+
+                      const isQuick = activeItem.type === 'quick';
+                      const t = activeItem.translation;
+                      const hasSent = !!(activeItem.ankiSent);
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', animation: 'fadeIn 0.2s ease-out' }}>
+                          
+                          {/* Heading & Main Word info */}
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                              <div>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.5px' }}>Thuật ngữ Đức</span>
+                                <h1 style={{ fontSize: '2.2rem', fontWeight: '800', color: 'white', marginTop: '0.2rem' }}>{activeItem.german}</h1>
+                                {activeItem.word !== activeItem.german && (
+                                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                                    Bôi đen gốc: <span style={{ fontFamily: 'monospace', color: '#fca5a5' }}>"{activeItem.word}"</span>
+                                  </p>
+                                )}
+                              </div>
+                              
+                              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                <button
+                                  onClick={() => setImportingItem(activeItem)}
+                                  className="btn-secondary"
+                                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', padding: '0.6rem 1rem', borderRadius: '10px' }}
+                                >
+                                  ➕ Toibingu
+                                </button>
+                                <button
+                                  onClick={(e) => sendLookupToAnki(activeItem, false)}
+                                  onContextMenu={(e) => { e.preventDefault(); sendLookupToAnki(activeItem, true); }}
+                                  className="btn-primary"
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', padding: '0.6rem 1rem', borderRadius: '10px',
+                                    background: hasSent ? 'linear-gradient(135deg, rgba(99,102,241,0.6), rgba(168,85,247,0.6))' : 'var(--accent-primary)',
+                                    borderColor: hasSent ? 'rgba(99,102,241,0.4)' : 'var(--accent-primary)',
+                                  }}
+                                  title="Thêm vào Anki (Chuột phải để thêm thẳng không qua chấm điểm)"
+                                >
+                                  {hasSent ? '🟣 Đã gửi Anki' : '📤 Gửi vào Anki'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {activeItem.context && (
+                              <div style={{ background: 'rgba(255,255,255,0.03)', borderLeft: '3px solid var(--accent-primary)', padding: '1rem', borderRadius: '0 8px 8px 0', marginTop: '1.2rem' }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: '700', textTransform: 'uppercase', display: 'block', marginBottom: '0.3rem' }}>Ngữ cảnh phát hiện</span>
+                                <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: '1.5' }}>"{activeItem.context}"</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Render Translation Details (Structured Cards) */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                            {isQuick ? (
+                              // QUICK TRANSLATION LAYOUT
+                              <>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.2rem' }}>
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: '700', textTransform: 'uppercase' }}>Nghĩa Tiếng Việt</span>
+                                    <p style={{ fontSize: '1.1rem', fontWeight: '700', color: 'white', marginTop: '0.4rem' }}>{t.viet || 'N/A'}</p>
+                                  </div>
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#6366f1', fontWeight: '700', textTransform: 'uppercase' }}>Tiếng Anh / Latin</span>
+                                    <p style={{ fontSize: '0.98rem', fontWeight: '600', color: 'white', marginTop: '0.4rem' }}>
+                                      🇬🇧 {t.en || 'N/A'} <br />
+                                      🧬 {t.latin ? <span style={{ fontStyle: 'italic' }}>{t.latin}</span> : 'N/A'}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {t.symptom && (
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: '700', textTransform: 'uppercase' }}>Triệu chứng lâm sàng</span>
+                                    <p style={{ fontSize: '0.92rem', color: 'var(--text-primary)', marginTop: '0.5rem', lineHeight: '1.6' }}>{t.symptom}</p>
+                                  </div>
+                                )}
+
+                                {t.note && (
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase' }}>Ghi chú học tập</span>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem', lineHeight: '1.5' }}>{t.note}</p>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              // DEEP CLINICAL EXPLANATION LAYOUT
+                              <>
+                                <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                  <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: '700', textTransform: 'uppercase' }}>Định nghĩa y khoa</span>
+                                  <p style={{ fontSize: '1rem', color: 'white', marginTop: '0.4rem', lineHeight: '1.6', fontWeight: '500' }}>{t.dinh_nghia || 'N/A'}</p>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.2rem' }}>
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: '700', textTransform: 'uppercase' }}>Triệu chứng điển hình</span>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem', lineHeight: '1.6' }}>{t.trieu_chung || 'N/A'}</p>
+                                  </div>
+                                  <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#06b6d4', fontWeight: '700', textTransform: 'uppercase' }}>Chẩn đoán quyết định</span>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem', lineHeight: '1.6' }}>{t.chan_doan || 'N/A'}</p>
+                                  </div>
+                                </div>
+
+                                <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--glass-border)', padding: '1.2rem', borderRadius: '16px' }}>
+                                  <span style={{ fontSize: '0.72rem', color: '#ec4899', fontWeight: '700', textTransform: 'uppercase' }}>Nguyên tắc điều trị</span>
+                                  <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem', lineHeight: '1.6' }}>{t.dieu_tri || 'N/A'}</p>
+                                </div>
+
+                                {t.impp_note && (
+                                  <div style={{ background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.1), rgba(168, 85, 247, 0.1))', border: '1px solid rgba(236, 72, 153, 0.25)', padding: '1.2rem', borderRadius: '16px' }}>
+                                    <span style={{ fontSize: '0.72rem', color: '#f472b6', fontWeight: '700', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                      ⭐ Key thi IMPP M2
+                                    </span>
+                                    <p style={{ fontSize: '0.92rem', color: 'white', fontWeight: '600', marginTop: '0.4rem', lineHeight: '1.5' }}>{t.impp_note}</p>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+          )}
+
+          {/* 6. LIGHTNING DECKS */}
+          {rightPanelMode === 'lightning_decks' && (
+            <LightningDecksView />
           )}
 
         </main>
@@ -2392,7 +3868,170 @@ export default function App() {
         </div>
       )}
 
+      {/* --- PROMOTION/IMPORT MODAL FOR ECOSYSTEM HUB --- */}
+      {importingItem !== null && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(5, 6, 12, 0.9)',
+          backdropFilter: 'blur(10px)',
+          zIndex: 3500,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          animation: 'overlayFadeIn 0.25s ease-out'
+        }}
+        onClick={() => { setImportingItem(null); setImportExample(""); }}
+        >
+          <div style={{
+            background: 'var(--bg-secondary)',
+            border: '1.5px solid var(--glass-border)',
+            borderRadius: '24px',
+            padding: '2.5rem 2rem',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 25px 50px rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.5rem',
+            animation: 'modalBumpUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <span style={{ fontSize: '2.5rem' }}>➕</span>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: '800', color: 'white', marginTop: '0.5rem' }}>
+                Thêm vào Thư viện Toibingu
+              </h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                Chuyển thuật ngữ <strong style={{ color: 'white' }}>"{importingItem.german}"</strong> thành một thẻ học tập chính thức.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Học phần học tập</label>
+                <select 
+                  className="form-select"
+                  value={importModule}
+                  onChange={(e) => setImportModule(Number(e.target.value))}
+                  style={{ padding: '0.7rem', borderRadius: '10px', background: 'var(--bg-primary)', border: '1px solid var(--glass-border)', color: 'white' }}
+                >
+                  <option value={2}>Học phần 2 (Chuyên ngành Y khoa)</option>
+                  <option value={1}>Học phần 1 (Từ vựng tiếng Đức tổng hợp)</option>
+                </select>
+              </div>
+
+              {importModule === 2 ? (
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.8rem' }}>Chuyên khoa y học</label>
+                  <select 
+                    className="form-select"
+                    value={importCategory}
+                    onChange={(e) => setImportCategory(e.target.value)}
+                    style={{ padding: '0.7rem', borderRadius: '10px', background: 'var(--bg-primary)', border: '1px solid var(--glass-border)', color: 'white' }}
+                  >
+                    {medicalSpecialties.map(spec => (
+                      <option key={spec} value={spec}>{spec}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: '0.8rem' }}>Nhóm từ vựng</label>
+                  <select 
+                    className="form-select"
+                    value={importCategory}
+                    onChange={(e) => setImportCategory(e.target.value)}
+                    style={{ padding: '0.7rem', borderRadius: '10px', background: 'var(--bg-primary)', border: '1px solid var(--glass-border)', color: 'white' }}
+                  >
+                    <option value="General">General (Từ vựng chung)</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Ghi chú ngữ cảnh / Ví dụ</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Ví dụ: Đọc trên bài Amboss... hoặc để trống"
+                  value={importExample}
+                  onChange={(e) => setImportExample(e.target.value)}
+                  style={{ padding: '0.7rem 1rem', borderRadius: '10px' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+              <button 
+                onClick={() => { setImportingItem(null); setImportExample(""); }}
+                style={{
+                  flex: 1,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--glass-border)',
+                  padding: '0.75rem',
+                  borderRadius: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Hủy bỏ
+              </button>
+              <button 
+                onClick={handlePromoteToCard}
+                style={{
+                  flex: 1,
+                  background: 'var(--accent-primary)',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.75rem',
+                  borderRadius: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)'
+                }}
+              >
+                Tạo thẻ ngay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
+        .lib-group-header-hover:hover {
+          background: rgba(255, 255, 255, 0.08) !important;
+        }
+        @keyframes blinkTarget {
+          0%, 100% { opacity: 0.2; }
+          50% { opacity: 1; }
+        }
+        @keyframes rocketFloat {
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          50% { transform: translateY(-8px) rotate(1deg); }
+        }
+        @keyframes rocketFlyOut {
+          0% { transform: translateY(0px) scale(1); }
+          30% { transform: translateY(-440px) scale(0.5); opacity: 0; }
+          31% { transform: translateY(440px) scale(0.5); opacity: 0; }
+          40% { opacity: 1; }
+          100% { transform: translateY(0px) scale(1); }
+        }
+        @keyframes flameThrustNormal {
+          0%, 100% { transform: scaleY(1) scaleX(1); }
+          50% { transform: scaleY(1.15) scaleX(0.92); }
+        }
+        @keyframes flameFlickerErratic {
+          0%, 100% { opacity: 0.1; transform: scaleY(0.3); fill: #475569; }
+          25% { opacity: 0.8; transform: scaleY(0.75); fill: #f59e0b; }
+          50% { opacity: 0.1; transform: scaleY(0.15); fill: #334155; }
+          75% { opacity: 0.7; transform: scaleY(0.55); fill: #ef4444; }
+        }
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
@@ -2464,6 +4103,11 @@ export default function App() {
           transform: rotate(-10deg) scale(0.88) !important;
         }
       `}</style>
+
+      {/* Anki Toast Notifications */}
+      <AnkiToast toasts={ankiToasts} />
+
     </div>
+
   );
 }
