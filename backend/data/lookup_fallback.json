@@ -124,5 +124,37 @@
     "context": "Ungünstige Beziehungserfahrungen (in der Familie)",
     "type": "quick",
     "timestamp": "2026-06-04T16:52:12.762Z"
+  },
+  {
+    "_id": "lookup_id_1780650880715_408",
+    "word": "unvorhersehbar",
+    "german": "unvorhersehbar",
+    "translation": {
+      "german": "unvorhersehbar",
+      "viet": "không thể dự đoán trước được",
+      "latin": "",
+      "en": "unpredictable",
+      "symptom": "",
+      "note": "Mô tả trạng thái diễn biến ca bệnh hoặc ca trực khó lường"
+    },
+    "context": "Gerade die Nachtschichten am Wochenende sind oft hektisch und unvorhersehbar.",
+    "type": "quick",
+    "timestamp": "2026-06-05T09:14:40.714Z"
+  },
+  {
+    "_id": "lookup_id_1780650894006_551",
+    "word": "Herzschwäche",
+    "german": "Herzschwäche",
+    "translation": {
+      "german": "Herzschwäche",
+      "viet": "suy tim",
+      "latin": "insufficientia cordis",
+      "en": "heart failure",
+      "symptom": "khó thở, mệt mỏi, phù chân, giảm khả năng gắng sức",
+      "note": "tình trạng cơ tim yếu không bơm đủ máu đáp ứng nhu cầu"
+    },
+    "context": "Dame mit Herzschwäche",
+    "type": "quick",
+    "timestamp": "2026-06-05T09:14:54.005Z"
   }
 ]

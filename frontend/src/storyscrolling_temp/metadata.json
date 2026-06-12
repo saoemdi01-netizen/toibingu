@@ -1,0 +1,6 @@
+{
+  "name": "Storyscrolling Selection App",
+  "description": "An immersive application showcasing a smooth storyscrolling interface, beautiful login animations, and fluid full-screen card transitions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

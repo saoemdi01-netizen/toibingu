@@ -1,5 +1,11 @@
 import { connectDB, seedDatabase } from './db.js';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -511,11 +517,21 @@ function build1000UniqueVocabList() {
 async function run() {
   console.log("Starting seeder script...");
   await connectDB();
-  const allCards = build1000UniqueVocabList();
-  console.log(`Prepared list of ${allCards.length} vocabulary cards (Perfect balance of Nouns, Verbs, Adjectives, Prepositions).`);
+  
+  let allCards;
+  const optimizedPath = path.join(__dirname, 'data', 'german_words_optimized.json');
+  if (fs.existsSync(optimizedPath)) {
+    console.log("Loading optimized German words from JSON file...");
+    allCards = JSON.parse(fs.readFileSync(optimizedPath, 'utf-8'));
+  } else {
+    console.log("Generating German words using dynamic builder...");
+    allCards = build1000UniqueVocabList();
+  }
+  
+  console.log(`Prepared list of ${allCards.length} vocabulary cards.`);
   const success = await seedDatabase(allCards);
   if (success) {
-    console.log("Seeding completed successfully with 1000 unique German B2/C1 TestDaF words. Medical cards are completely cleared.");
+    console.log("Seeding completed successfully with German B2/C1 TestDaF words.");
   } else {
     console.error("Seeding failed.");
   }

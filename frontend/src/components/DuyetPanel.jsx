@@ -1,4 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { 
+  ShieldAlert, 
+  Trash2, 
+  CheckCircle2, 
+  Layers, 
+  ArrowLeft, 
+  Search, 
+  Plus, 
+  AlertOctagon, 
+  RefreshCw, 
+  Activity, 
+  Zap,
+  Globe,
+  ChevronDown,
+  Info
+} from 'lucide-react';
+import singularityCore from '../singularity_core.png';
 
 const API = 'http://localhost:5000/api';
 
@@ -19,28 +36,32 @@ function Starfield() {
     resize();
     window.addEventListener('resize', resize);
 
-    // Generate stars
-    for (let i = 0; i < 180; i++) {
+    // Generate stars with slight crimson/violet tint
+    for (let i = 0; i < 200; i++) {
+      const isCrimson = Math.random() > 0.7;
       stars.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
-        r: Math.random() * 1.4 + 0.3,
-        speed: Math.random() * 0.3 + 0.05,
+        r: Math.random() * 1.5 + 0.3,
+        speed: Math.random() * 0.2 + 0.05,
         opacity: Math.random() * 0.7 + 0.3,
         twinkle: Math.random() * Math.PI * 2,
+        color: isCrimson 
+          ? `rgba(239, 68, 68, ${Math.random() * 0.4 + 0.3})` 
+          : `rgba(200, 210, 255, ${Math.random() * 0.6 + 0.4})`
       });
     }
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       stars.forEach(s => {
-        s.twinkle += 0.02;
-        const op = s.opacity * (0.7 + 0.3 * Math.sin(s.twinkle));
+        s.twinkle += 0.015;
+        const op = s.opacity * (0.6 + 0.4 * Math.sin(s.twinkle));
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(200, 210, 255, ${op})`;
+        // Replace base opacity in color string with computed op
+        ctx.fillStyle = s.color.replace(/[\d\.]+\)$/, `${op})`);
         ctx.fill();
-        // Slow drift downward (parallax)
         s.y += s.speed;
         if (s.y > canvas.height) { s.y = 0; s.x = Math.random() * canvas.width; }
       });
@@ -52,7 +73,7 @@ function Starfield() {
 
   return (
     <canvas ref={canvasRef} style={{
-      position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, opacity: 0.6,
+      position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, opacity: 0.55,
     }} />
   );
 }
@@ -63,12 +84,12 @@ function ShootingStars() {
   useEffect(() => {
     const spawn = () => {
       const id = Date.now() + Math.random();
-      const startX = Math.random() * 80 + 10;
-      const startY = Math.random() * 40;
+      const startX = Math.random() * 70 + 10;
+      const startY = Math.random() * 30;
       setShots(p => [...p, { id, startX, startY }]);
-      setTimeout(() => setShots(p => p.filter(s => s.id !== id)), 1200);
+      setTimeout(() => setShots(p => p.filter(s => s.id !== id)), 1500);
     };
-    const interval = setInterval(spawn, 2800);
+    const interval = setInterval(spawn, 3500);
     return () => clearInterval(interval);
   }, []);
 
@@ -79,68 +100,47 @@ function ShootingStars() {
           position: 'absolute',
           left: `${s.startX}%`,
           top: `${s.startY}%`,
-          width: '120px', height: '1.5px',
-          background: 'linear-gradient(90deg, rgba(255,255,255,0.9), transparent)',
-          transform: 'rotate(30deg)',
-          animation: 'shootStar 1.1s ease-out forwards',
+          width: '150px', height: '2px',
+          background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.8), rgba(139, 92, 246, 0.4), transparent)',
+          transform: 'rotate(25deg)',
+          animation: 'shootStarAdmin 1.3s ease-out forwards',
         }} />
       ))}
       <style>{`
-        @keyframes shootStar {
-          0%   { opacity: 1; transform: rotate(30deg) translateX(0); }
-          100% { opacity: 0; transform: rotate(30deg) translateX(300px) translateY(150px); }
+        @keyframes shootStarAdmin {
+          0%   { opacity: 1; transform: rotate(25deg) translateX(0); }
+          100% { opacity: 0; transform: rotate(25deg) translateX(400px) translateY(180px); }
         }
       `}</style>
     </div>
   );
 }
 
-// ── Planet decoration ───────────────────────────────────────────────────
-function SpacePlanets() {
+// ── Accretion Disk Graphic ──────────────────────────────────────────────
+function AccretionDisk() {
   return (
-    <>
-      {/* Large distant planet top-right */}
-      <div style={{
-        position: 'fixed', top: '-60px', right: '-60px',
-        width: '220px', height: '220px', borderRadius: '50%',
-        background: 'radial-gradient(circle at 35% 35%, #3b4fa8, #0d0d2b)',
-        boxShadow: '0 0 60px rgba(99,102,241,0.2), inset 0 0 40px rgba(0,0,0,0.5)',
-        opacity: 0.35, zIndex: 0, pointerEvents: 'none',
-      }} />
-      {/* Rings */}
-      <div style={{
-        position: 'fixed', top: '20px', right: '-120px',
-        width: '460px', height: '80px', borderRadius: '50%',
-        border: '10px solid rgba(99,102,241,0.12)',
-        transform: 'rotateX(70deg)',
-        opacity: 0.3, zIndex: 0, pointerEvents: 'none',
-      }} />
-      {/* Small moon bottom-left */}
-      <div style={{
-        position: 'fixed', bottom: '80px', left: '20px',
-        width: '60px', height: '60px', borderRadius: '50%',
-        background: 'radial-gradient(circle at 40% 35%, #4a5568, #1a1a2e)',
-        boxShadow: 'inset -8px -4px 0 rgba(0,0,0,0.4)',
-        opacity: 0.25, zIndex: 0, pointerEvents: 'none',
-      }} />
-    </>
+    <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden flex items-center justify-center opacity-30">
+      {/* Outer spinning disk */}
+      <div 
+        className="absolute w-[800px] h-[800px] rounded-full border border-red-500/10 animate-[spin_80s_linear_infinite]" 
+        style={{
+          boxShadow: 'inset 0 0 100px rgba(239,68,68,0.04), 0 0 100px rgba(124,58,237,0.04)'
+        }} 
+      />
+      {/* Inner spinning disk */}
+      <div 
+        className="absolute w-[500px] h-[500px] rounded-full border border-violet-500/10 animate-[spin_40s_linear_infinite_reverse]" 
+        style={{
+          boxShadow: 'inset 0 0 60px rgba(139,92,246,0.03), 0 0 60px rgba(239,68,68,0.03)'
+        }} 
+      />
+      {/* Radar sweeping line */}
+      <div className="absolute w-[1200px] h-[1200px] rounded-full border border-dashed border-red-500/5 animate-[spin_120s_linear_infinite]" />
+    </div>
   );
 }
 
-// ── Rocket animation in header ──────────────────────────────────────────
-function RocketIcon({ launching }) {
-  return (
-    <span style={{
-      display: 'inline-block',
-      fontSize: '2rem',
-      transition: 'transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
-      transform: launching ? 'translateY(-60px) scale(0.5)' : 'translateY(0) scale(1)',
-      filter: launching ? 'blur(2px)' : 'none',
-    }}>🚀</span>
-  );
-}
-
-// ── Main DuyetPanel ─────────────────────────────────────────────────────
+// ── List of default M2 lessons ──────────────────────────────────────────
 const meditricksM2Order = [
   "Ischämischer Schlaganfall",
   "Epidemiologie und Wahrscheinlichkeit",
@@ -244,15 +244,17 @@ const meditricksM2Order = [
   "Mesenteriale Ischämie"
 ];
 
+// ── Medical Specialties ─────────────────────────────────────────────────
 const medicalSpecialties = [
   "Innere Medizin", "Infektion", "Pädiatrie", "Humangentik", "Dermatologie",
   "Anästhesis", "Intesiv- und Notfallmedizin", "Chirurgie", "Orthopädie",
   "Gynäkologie", "Urologie", "HNO", "Augenheilkunde", "Neurologie",
-  "Psychiatrie", "Pharmakologie", "Arbeits- und Umweiltmedizin", "Rechtsmedizin",
-  "Pathologie", "Epidemiologie", "Sozialmedizin und Alternative Heilverfharen und Rehabilitation"
+  "Psychiatrie", "Pharmakologie", "Arbeits- và Umweltmedizin", "Rechtsmedizin",
+  "Pathologie", "Epidemiologie", "Sozialmedizin und Alternative Heilverfahren und Rehabilitation"
 ];
 
 const getCardDiseaseName = (card) => {
+  if (!card || !card.word) return '';
   const nameMatch = card.word.match(/^([^(]+)\s*\(Card\s*#\d+\)/i);
   return nameMatch
     ? nameMatch[1].trim()
@@ -276,14 +278,22 @@ const getNextCardNumber = (lessonName, existingM2Cards) => {
   return maxNum + 1;
 };
 
-const renderClozeText = (text, highlightColor = '#818cf8') => {
+const renderClozeText = (text, highlightColor = '#ef4444') => {
   if (!text) return '';
   const parts = text.split(/(\{\{c\d+::.*?\}\})/g);
   return parts.map((part, i) => {
     const match = part.match(/\{\{c\d+::(.*?)\}\}/);
     if (match) {
       return (
-        <span key={i} style={{ color: highlightColor, fontWeight: '700', borderBottom: `1px dashed ${highlightColor}` }}>
+        <span 
+          key={i} 
+          style={{ 
+            color: highlightColor, 
+            textShadow: `0 0 8px ${highlightColor}44`,
+            fontWeight: '700', 
+            borderBottom: `1.5px dashed ${highlightColor}` 
+          }}
+        >
           {match[1]}
         </span>
       );
@@ -292,24 +302,46 @@ const renderClozeText = (text, highlightColor = '#818cf8') => {
   });
 };
 
-// ── Main DuyetPanel ─────────────────────────────────────────────────────
 export default function DuyetPanel({ onBack }) {
-  // State: decks (Lightning), cards per deck
+  // State: decks and cards
   const [decks, setDecks] = useState([]);
   const [selectedDeckId, setSelectedDeckId] = useState(null);
   const [deckCards, setDeckCards] = useState([]);
   const [loadingDecks, setLoadingDecks] = useState(true);
   const [loadingCards, setLoadingCards] = useState(false);
 
-  // Split-pane active card & approval states
+  // Split-pane states
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [approvedCardIds, setApprovedCardIds] = useState(new Set());
-
-  // Review state
   const [removingCardIds, setRemovingCardIds] = useState(new Set());
   const [cardToDelete, setCardToDelete] = useState(null);
 
-  // Global keydown event listener when confirm modal is open
+  // Search inside queue sidebar
+  const [queueSearchQuery, setQueueSearchQuery] = useState('');
+
+  // Export properties
+  const [m2Cards, setM2Cards] = useState([]);
+  const [targetLesson, setTargetLesson] = useState('');
+  const [newLessonName, setNewLessonName] = useState('');
+  const [newLessonSpecialty, setNewLessonSpecialty] = useState('Innere Medizin');
+  const [showNewLessonInput, setShowNewLessonInput] = useState(false);
+  const [lessonSearchQuery, setLessonSearchQuery] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState(null);
+  const [launching, setLaunching] = useState(false);
+
+  // Custom Dropdown State for Lesson Picker
+  const [isLessonDropdownOpen, setIsLessonDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Toast
+  const [toast, setToast] = useState(null);
+  const showToast = (msg, type = 'info') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // Keyboard events for warning confirm dialog
   useEffect(() => {
     if (!cardToDelete) return;
     const handleGlobalKeyDown = (e) => {
@@ -324,30 +356,22 @@ export default function DuyetPanel({ onBack }) {
         setCardToDelete(null);
       }
     };
-
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [cardToDelete, deckCards]);
 
-  // Export to Module 2
-  const [m2Cards, setM2Cards] = useState([]); // all existing M2 cards to extract lesson list
-  const [targetLesson, setTargetLesson] = useState('');
-  const [newLessonName, setNewLessonName] = useState('');
-  const [newLessonSpecialty, setNewLessonSpecialty] = useState('Innere Medizin');
-  const [showNewLessonInput, setShowNewLessonInput] = useState(false);
-  const [lessonSearchQuery, setLessonSearchQuery] = useState('');
-  const [exporting, setExporting] = useState(false);
-  const [exportResult, setExportResult] = useState(null);
-  const [launching, setLaunching] = useState(false);
+  // Click outside listener for custom dropdown
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsLessonDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
-  // Toast
-  const [toast, setToast] = useState(null);
-  const showToast = (msg, type = 'info') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  // Load Lightning Decks and all cards automatically on load
+  // Fetch queue cards automatically
   useEffect(() => {
     setLoadingDecks(true);
     setLoadingCards(true);
@@ -394,7 +418,7 @@ export default function DuyetPanel({ onBack }) {
       });
   }, []);
 
-  // Load M2 cards to extract lesson list
+  // Load existing M2 cards to compute lessons
   useEffect(() => {
     fetch(`${API}/cards`)
       .then(r => r.json())
@@ -405,11 +429,9 @@ export default function DuyetPanel({ onBack }) {
       .catch(() => {});
   }, []);
 
-  // Extract custom & default lessons list
+  // Compute final M2 lesson list
   const m2LessonsList = useMemo(() => {
     const customLessons = new Set();
-    
-    // Read from localStorage to sync empty lessons
     try {
       const storedCustom = JSON.parse(localStorage.getItem('custom_lessons_m2') || '[]');
       if (Array.isArray(storedCustom)) {
@@ -436,6 +458,7 @@ export default function DuyetPanel({ onBack }) {
     }
   }, [m2LessonsList, targetLesson]);
 
+  // Edit card locally
   const handleCardChange = (cardId, field, value) => {
     setDeckCards(prev => prev.map(c => {
       if ((c.id || c._id) === cardId) {
@@ -445,6 +468,7 @@ export default function DuyetPanel({ onBack }) {
     }));
   };
 
+  // Auto-save on blur
   const saveCardToBackend = async (card) => {
     const id = card.id || card._id;
     if (!id) return;
@@ -462,7 +486,6 @@ export default function DuyetPanel({ onBack }) {
     }
   };
 
-  // Helper to select another card after rejection/export
   const selectNextAvailableCard = (deletedId, currentCards = deckCards) => {
     const remaining = currentCards.filter(c => (c.id || c._id) !== deletedId);
     if (remaining.length > 0) {
@@ -508,7 +531,7 @@ export default function DuyetPanel({ onBack }) {
         next.delete(cardId);
         return next;
       });
-      showToast("Đã loại bỏ thẻ!", "info");
+      showToast("Đã tiêu hủy thẻ thành công!", "error");
     }, 300);
   };
 
@@ -532,15 +555,16 @@ export default function DuyetPanel({ onBack }) {
         showToast("Đã hủy duyệt thẻ!", "info");
       } else {
         next.add(cardId);
-        showToast("Đã duyệt thẻ! (Tô xanh)", "success");
+        showToast("Đã duyệt thẻ! Thẻ chuyển sang màu xanh lá.", "success");
       }
       return next;
     });
   };
 
+  // Export approved cards to M2 Library
   const handleExportApproved = async () => {
     const finalLesson = showNewLessonInput ? newLessonName.trim() : targetLesson;
-    if (!finalLesson) { showToast('Chọn hoặc nhập tên bài lớn đích!', 'error'); return; }
+    if (!finalLesson) { showToast('Vui lòng chọn hoặc nhập tên bài học!', 'error'); return; }
 
     const approvedCards = deckCards.filter(c => approvedCardIds.has(c.id || c._id));
     if (approvedCards.length === 0) { showToast('Không có thẻ nào được duyệt để xuất!', 'error'); return; }
@@ -560,6 +584,15 @@ export default function DuyetPanel({ onBack }) {
       finalCategory = newLessonSpecialty;
       const updated = { ...manualSpecialties, [finalLesson]: newLessonSpecialty };
       localStorage.setItem('manual_specialties', JSON.stringify(updated));
+      
+      // Update local custom lessons in localStorage
+      try {
+        const storedCustom = JSON.parse(localStorage.getItem('custom_lessons_m2') || '[]');
+        if (!storedCustom.includes(finalLesson)) {
+          storedCustom.push(finalLesson);
+          localStorage.setItem('custom_lessons_m2', JSON.stringify(storedCustom));
+        }
+      } catch (e) {}
     } else if (!finalCategory) {
       const existingCard = m2Cards.find(c => getCardDiseaseName(c).toLowerCase().trim() === finalLesson.toLowerCase().trim());
       if (existingCard) {
@@ -639,18 +672,38 @@ export default function DuyetPanel({ onBack }) {
       setLaunching(false);
       setExporting(false);
       setExportResult({ succeeded, failed, category: finalLesson });
-      showToast(`🚀 Đã xuất ${succeeded} card sang bài ${finalLesson}!`, 'success');
+      showToast(`🚀 Đã dịch chuyển thành công ${succeeded} thẻ sang bài ${finalLesson}!`, 'success');
     }, 300);
   };
 
-  const activeCard = deckCards.find(c => (c.id || c._id) === selectedCardId) || deckCards[0];
+  // Filter queue cards by search query
+  const filteredQueueCards = useMemo(() => {
+    return deckCards.filter(c => {
+      if (!queueSearchQuery.trim()) return true;
+      const q = queueSearchQuery.toLowerCase();
+      return (
+        (c.front || '').toLowerCase().includes(q) ||
+        (c.back || '').toLowerCase().includes(q) ||
+        (c.deckName || '').toLowerCase().includes(q)
+      );
+    });
+  }, [deckCards, queueSearchQuery]);
+
+  const activeCard = deckCards.find(c => (c.id || c._id) === selectedCardId) || filteredQueueCards[0] || deckCards[0];
+
+  // Filter target lessons in dropdown
+  const filteredLessons = useMemo(() => {
+    return m2LessonsList.filter(l => l.toLowerCase().includes(lessonSearchQuery.toLowerCase()));
+  }, [m2LessonsList, lessonSearchQuery]);
 
   return (
-    <div style={{ height: '100vh', background: '#060814', color: 'white', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div className="h-screen w-screen flex flex-col relative overflow-hidden bg-[#050109] text-white" style={{ fontFamily: 'var(--font-sans)' }}>
+      {/* Background atmosphere elements */}
       <Starfield />
       <ShootingStars />
-      <SpacePlanets />
+      <AccretionDisk />
 
+      {/* Global CSS animations */}
       <style>{`
         @keyframes cardFadeOutShrink {
           0% {
@@ -677,7 +730,7 @@ export default function DuyetPanel({ onBack }) {
         @keyframes cardSlideInUp {
           0% {
             opacity: 0;
-            transform: translateY(24px) scale(0.97);
+            transform: translateY(20px) scale(0.97);
           }
           100% {
             opacity: 1;
@@ -685,52 +738,16 @@ export default function DuyetPanel({ onBack }) {
           }
         }
         .card-item-anim {
-          animation: cardSlideInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          animation: cardSlideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
         .review-card-item {
           transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
         }
         .review-card-item:hover {
           transform: translateY(-2px);
-          border-color: rgba(99, 102, 241, 0.35) !important;
-          box-shadow: 0 12px 40px rgba(99, 102, 241, 0.18) !important;
-          background: rgba(25, 25, 60, 0.55) !important;
-        }
-        .btn-reject {
-          transition: all 0.2s ease-in-out !important;
-        }
-        .btn-reject:hover {
-          box-shadow: 0 0 15px rgba(239, 68, 68, 0.45) !important;
-          transform: scale(1.03);
-          background: rgba(239, 68, 68, 0.25) !important;
-        }
-        .btn-approve {
-          transition: all 0.2s ease-in-out !important;
-        }
-        .btn-approve:hover {
-          box-shadow: 0 0 15px rgba(16, 185, 129, 0.45) !important;
-          transform: scale(1.03);
-          background: rgba(16, 185, 129, 0.28) !important;
-        }
-        @keyframes confirmZoomIn {
-          0% { transform: scale(0.9); opacity: 0; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        .btn-cancel-modal {
-          transition: all 0.2s ease-in-out;
-        }
-        .btn-cancel-modal:hover {
-          background: rgba(255, 255, 255, 0.1) !important;
-          color: white !important;
-          border-color: rgba(255, 255, 255, 0.2) !important;
-        }
-        .btn-confirm-modal {
-          transition: all 0.2s ease-in-out;
-        }
-        .btn-confirm-modal:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45) !important;
-          background: linear-gradient(135deg, #f87171 0%, #dc2626 100%) !important;
+          border-color: rgba(239, 68, 68, 0.35) !important;
+          box-shadow: 0 12px 40px rgba(239, 68, 68, 0.15) !important;
+          background: rgba(20, 10, 25, 0.65) !important;
         }
         .left-sidebar-scroll::-webkit-scrollbar {
           width: 5px;
@@ -739,214 +756,199 @@ export default function DuyetPanel({ onBack }) {
           background: transparent;
         }
         .left-sidebar-scroll::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.08);
           border-radius: 4px;
         }
         .left-sidebar-scroll::-webkit-scrollbar-thumb:hover {
-          background: rgba(99, 102, 241, 0.45);
+          background: rgba(239, 68, 68, 0.4);
+        }
+        .btn-erasing {
+          position: relative;
+          overflow: hidden;
+        }
+        .btn-erasing::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+          transform: translateX(-100%);
+          animation: laserScan 2.5s infinite;
+        }
+        @keyframes laserScan {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        .glow-red-radial {
+          box-shadow: 0 0 35px rgba(239, 68, 68, 0.12);
         }
       `}</style>
 
-      {/* ── HEADER ── */}
-      <header style={{
-        position: 'relative', zIndex: 10,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '1rem 2rem',
-        background: 'rgba(10,8,30,0.7)',
-        borderBottom: '1px solid rgba(239,68,68,0.25)',
-        backdropFilter: 'blur(12px)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <RocketIcon launching={launching} />
+      {/* ── HEADER (Admin Command Interface) ── */}
+      <header className="relative z-10 flex items-center justify-between px-8 py-4 bg-black/60 border-b border-red-500/20 backdrop-blur-xl">
+        {/* Title and Clearance status */}
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-red-950/20 border border-red-500/30 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.2)]">
+            <ShieldAlert className="w-5 h-5 text-red-500" />
+          </div>
           <div>
-            <div style={{ fontSize: '1.3rem', fontWeight: '900', letterSpacing: '2px', color: '#fca5a5', textTransform: 'uppercase' }}>
-              DUYỆT CARDS
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold text-red-500 tracking-widest px-2 py-0.5 rounded bg-red-950/40 border border-red-500/30">LEVEL 5 ACCESS</span>
+              <span className="text-xs font-mono text-white/40 tracking-wider">SECURE TRANSMISSION NODE</span>
             </div>
-            <div style={{ fontSize: '0.65rem', color: 'rgba(252,165,165,0.5)', textTransform: 'uppercase', letterSpacing: '1.5px' }}>
-              Admin Control Center · Local Only
-            </div>
+            <h1 className="text-lg font-black tracking-widest text-white mt-0.5">
+              LÕI PHÁN QUYẾT SINGULARITY
+            </h1>
           </div>
         </div>
 
-        {/* Stats row */}
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          <Chip color="#94a3b8" label={`📋 ${deckCards.length} thẻ`} />
-          <Chip color="#34d399" label={`✓ ${approvedCardIds.size} đã duyệt`} />
-          <button onClick={onBack} style={{
-            background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
-            color: '#fca5a5', padding: '0.5rem 1.2rem', borderRadius: '10px',
-            fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer', letterSpacing: '0.5px',
-          }}>
-            ← Quay lại
+        {/* Dynamic Diagnostics */}
+        <div className="hidden lg:flex items-center gap-8 px-6 py-2 rounded-xl bg-white/[0.02] border border-white/5 font-mono text-xs">
+          <div className="flex items-center gap-2">
+            <Activity className="w-3.5 h-3.5 text-red-500 animate-pulse" />
+            <span className="text-white/45">VŨ TRỤ:</span>
+            <span className="text-red-400 font-bold">M2 CLINICAL</span>
+          </div>
+          <div className="w-[1px] h-4 bg-white/10" />
+          <div className="flex items-center gap-2">
+            <Zap className="w-3.5 h-3.5 text-yellow-500" />
+            <span className="text-white/45">HÀNG ĐỢI:</span>
+            <span className="text-yellow-400 font-bold">{deckCards.length} THẺ</span>
+          </div>
+          <div className="w-[1px] h-4 bg-white/10" />
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="text-white/45">ĐÃ DUYỆT:</span>
+            <span className="text-emerald-400 font-bold">{approvedCardIds.size} THẺ</span>
+          </div>
+        </div>
+
+        {/* Back control */}
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={onBack}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-red-400 bg-red-950/20 border border-red-500/30 hover:bg-red-500 hover:text-white hover:shadow-[0_0_15px_rgba(239,68,68,0.4)] transition-all duration-300 transform active:scale-95 cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>QUAY LẠI VŨ TRỤ</span>
           </button>
         </div>
       </header>
 
       {/* ── MAIN LAYOUT ── */}
-      <div style={{ position: 'relative', zIndex: 5, flex: 1, display: 'flex', gap: 0, overflow: 'hidden' }}>
-
-        {/* ── LEFT: Flat Card List ── */}
-        <aside style={{
-          width: '300px', flexShrink: 0,
-          background: 'rgba(6,8,20,0.8)',
-          borderRight: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', flexDirection: 'column',
-          backdropFilter: 'blur(10px)',
-        }}>
-          <div style={{ padding: '1.2rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ fontSize: '0.65rem', fontWeight: '800', color: 'rgba(252,165,165,0.5)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '0.3rem' }}>
-              🎴 Danh sách thẻ cần duyệt
+      <div className="relative z-5 flex-1 flex overflow-hidden">
+        
+        {/* ── LEFT SIDEBAR: The Threat Queue ── */}
+        <aside className="w-[320px] flex-shrink-0 bg-black/40 border-r border-white/5 flex flex-col backdrop-blur-xl">
+          {/* Sidebar Header */}
+          <div className="p-5 border-b border-white/5 bg-black/20">
+            <div className="text-[10px] font-mono font-bold text-red-400/60 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+              DANH SÁCH CHỜ THẨM ĐỊNH
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.3)' }}>
-              {deckCards.length} thẻ trong hàng đợi
+            
+            {/* Search Input inside Queue */}
+            <div className="relative mt-3">
+              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/30">
+                <Search className="w-3.5 h-3.5" />
+              </span>
+              <input 
+                type="text" 
+                placeholder="Tìm trong hàng đợi..." 
+                value={queueSearchQuery}
+                onChange={e => setQueueSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 text-xs rounded-xl bg-white/[0.02] border border-white/5 outline-none focus:border-red-500/30 text-white placeholder-white/30 transition-all"
+              />
+              {queueSearchQuery && (
+                <button 
+                  onClick={() => setQueueSearchQuery('')}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/40 hover:text-white text-xs"
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0.8rem' }} className="left-sidebar-scroll">
+          {/* Sidebar Queue Scrollable */}
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 left-sidebar-scroll">
             {loadingCards ? (
-              <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.82rem', textAlign: 'center', marginTop: '2rem' }}>Đang tải...</p>
-            ) : deckCards.length === 0 ? (
-              <div style={{ textAlign: 'center', marginTop: '3rem', color: 'rgba(255,255,255,0.2)' }}>
-                <div style={{ fontSize: '2.5rem' }}>🛸</div>
-                <p style={{ fontSize: '0.78rem', marginTop: '0.5rem' }}>Hàng đợi trống</p>
+              <div className="flex flex-col items-center justify-center py-20 text-white/30 text-xs font-mono gap-2">
+                <RefreshCw className="w-5 h-5 animate-spin" />
+                <span>ĐANG TRUY XUẤT HÀNG ĐỢI...</span>
+              </div>
+            ) : filteredQueueCards.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center text-white/20">
+                <span className="text-3xl mb-2">🛸</span>
+                <span className="text-xs font-mono">HÀNG ĐỢI TRỐNG</span>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {deckCards.map((card, index) => {
-                  const cardId = card.id || card._id;
-                  const isSelected = selectedCardId === cardId;
-                  const isApproved = approvedCardIds.has(cardId);
+              filteredQueueCards.map((card, index) => {
+                const cardId = card.id || card._id;
+                const isSelected = selectedCardId === cardId;
+                const isApproved = approvedCardIds.has(cardId);
 
-                  return (
-                    <button
-                      key={cardId}
-                      onClick={() => setSelectedCardId(cardId)}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.5rem',
-                        padding: '0.8rem 1rem',
-                        borderRadius: '12px',
-                        width: '100%',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                        background: isSelected 
-                          ? 'rgba(99,102,241,0.22)' 
-                          : isApproved 
-                            ? 'rgba(16,185,129,0.12)' 
-                            : 'rgba(255,255,255,0.03)',
-                        border: isSelected
-                          ? '1px solid rgba(99,102,241,0.6)'
-                          : isApproved
-                            ? '1px solid rgba(16,185,129,0.5)'
-                            : '1px solid rgba(255,255,255,0.06)',
-                        color: 'white',
-                        boxShadow: isSelected 
-                          ? '0 4px 15px rgba(99,102,241,0.2)' 
-                          : isApproved
-                            ? '0 4px 12px rgba(16,185,129,0.15)'
-                            : 'none',
-                        fontFamily: 'inherit',
-                        boxSizing: 'border-box',
-                      }}
-                    >
-                      {/* Card ID & Approve status */}
-                      <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.25rem' }}>
-                        <span style={{ fontSize: '0.6rem', fontWeight: '800', color: isSelected ? '#a5b4fc' : isApproved ? '#34d399' : 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          Thẻ #{index + 1}
-                        </span>
-                        {isApproved ? (
-                          <span style={{ color: '#34d399', fontSize: '0.65rem', fontWeight: 'bold' }}>✓ DUYỆT</span>
-                        ) : (
-                          card.type && (
-                            <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase' }}>{card.type}</span>
-                          )
-                        )}
-                      </div>
-
-                      {/* FRONT SECTION */}
-                      <div style={{
-                        background: 'rgba(0, 0, 0, 0.2)',
-                        padding: '0.4rem 0.6rem',
-                        borderRadius: '6px',
-                        borderLeft: isSelected ? '2px solid #818cf8' : '2px solid rgba(255, 255, 255, 0.15)',
-                        width: '100%',
-                        boxSizing: 'border-box',
-                      }}>
-                        <div style={{ fontSize: '0.55rem', fontWeight: '800', color: isSelected ? '#a5b4fc' : 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.15rem' }}>
-                          Mặt trước
-                        </div>
-                        <div style={{
-                          fontSize: '0.75rem',
-                          color: 'rgba(255, 255, 255, 0.95)',
-                          lineHeight: '1.4',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: 'vertical',
-                          wordBreak: 'break-word',
-                        }}>
-                          {renderClozeText(card.front, isSelected ? '#a5b4fc' : '#818cf8')}
-                        </div>
-                      </div>
-
-                      {/* BACK SECTION */}
-                      <div style={{
-                        background: 'rgba(0, 0, 0, 0.15)',
-                        padding: '0.4rem 0.6rem',
-                        borderRadius: '6px',
-                        borderLeft: isSelected ? '2px solid #a78bfa' : '2px solid rgba(255, 255, 255, 0.15)',
-                        width: '100%',
-                        boxSizing: 'border-box',
-                      }}>
-                        <div style={{ fontSize: '0.55rem', fontWeight: '800', color: isSelected ? '#c084fc' : 'rgba(255, 255, 255, 0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.15rem' }}>
-                          Mặt sau
-                        </div>
-                        <div style={{
-                          fontSize: '0.72rem',
-                          color: 'rgba(255, 255, 255, 0.75)',
-                          lineHeight: '1.4',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: 'vertical',
-                          wordBreak: 'break-word',
-                        }}>
-                          {card.back || ''}
-                        </div>
-                      </div>
-
-                      {/* DECK INFO FOOTER */}
-                      {card.deckName && (
-                        <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.22)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', marginTop: '0.1rem' }}>
-                          📂 {card.deckName}
-                        </div>
+                return (
+                  <button
+                    key={cardId}
+                    onClick={() => setSelectedCardId(cardId)}
+                    className={`flex flex-col gap-2 p-4 rounded-xl w-full text-left transition-all duration-300 ${
+                      isSelected 
+                        ? 'bg-red-950/20 border border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.1)]' 
+                        : isApproved 
+                          ? 'bg-emerald-950/10 border border-emerald-500/30' 
+                          : 'bg-white/[0.02] border border-white/5 hover:bg-white/[0.05]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full border-b border-white/5 pb-1 text-[10px] font-mono">
+                      <span className={isSelected ? 'text-red-400 font-bold' : isApproved ? 'text-emerald-400 font-bold' : 'text-white/40'}>
+                        THẺ #{index + 1}
+                      </span>
+                      {isApproved ? (
+                        <span className="text-emerald-400 font-bold tracking-wider">✓ ĐÃ DUYỆT</span>
+                      ) : (
+                        <span className="text-white/20 uppercase text-[9px]">{card.deckName || 'CLINICAL'}</span>
                       )}
-                    </button>
-                  );
-                })}
-              </div>
+                    </div>
+
+                    {/* Front preview */}
+                    <div className="p-2 rounded bg-black/40 border-l border-white/15 w-full text-[11px] text-white/80 line-clamp-2 word-break">
+                      {renderClozeText(card.front, isSelected ? '#f87171' : '#ef4444')}
+                    </div>
+
+                    {/* Back preview */}
+                    <div className="p-2 rounded bg-black/20 border-l border-white/5 w-full text-[10px] text-white/55 line-clamp-2 word-break">
+                      {card.back || ''}
+                    </div>
+                  </button>
+                );
+              })
             )}
           </div>
         </aside>
 
-        {/* ── CENTER: Single Active Card View ── */}
-        <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* ── CENTER WORKSPACE: Quantum Dissection Console ── */}
+        <main className="flex-1 flex flex-col overflow-hidden bg-[#07020d]/30">
           {loadingCards ? (
-            <EmptyState icon="⏳" title="Đang tải cards..." sub="" />
+            <EmptyState icon={<RefreshCw className="w-10 h-10 animate-spin text-red-500" />} title="Đang đồng bộ hóa cấu trúc hạt..." sub="Truy xuất cơ sở dữ liệu từ Extension..." />
           ) : deckCards.length === 0 ? (
-            <EmptyState icon="🛸" title="Hàng đợi chưa có card nào" sub="Các cards từ extension sẽ hiển thị ở đây" />
+            <EmptyState 
+              icon={<img src={singularityCore} alt="Singularity" className="w-40 h-40 object-contain mx-auto animate-[spin_100s_linear_infinite] drop-shadow-[0_0_35px_rgba(239,68,68,0.25)] rounded-full" />}
+              title="TOÀN BỘ MA TRẬN ĐÃ CÂN BẰNG" 
+              sub="Không còn thẻ nào cần phê duyệt trong vùng lõi lượng tử." 
+            />
           ) : !activeCard ? (
-            <EmptyState icon="🎴" title="Chọn một thẻ ở danh sách bên trái để xem" sub="" />
+            <EmptyState icon={<Info className="w-8 h-8 text-red-400 animate-bounce" />} title="VUI LÒNG CHỌN VẬT THỂ PHÂN TÍCH" sub="Nhấp chọn một thẻ ở danh sách chờ bên trái để kích hoạt buồng chứa." />
           ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '2rem 3rem', gap: '1.5rem', overflowY: 'auto', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ width: '100%', maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.8rem' }}>
-                  <span>Chi tiết thẻ đang chọn</span>
-                  <span style={{ color: 'rgba(255,255,255,0.25)' }}>Tự động lưu khi sửa</span>
+            <div className="flex-1 p-10 flex flex-col justify-center items-center overflow-y-auto">
+              <div className="w-full max-w-3xl flex flex-col gap-6">
+                
+                {/* Console Metadata Title */}
+                <div className="flex items-center justify-between border-b border-white/10 pb-3 font-mono text-xs text-white/40">
+                  <span className="flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-red-500 animate-pulse" />
+                    <span>CONSOLE PHÂN TÍCH LƯỢNG TỬ // THỂ PHÂN CỰC</span>
+                  </span>
+                  <span>TỰ ĐỘNG LƯU CHẶN</span>
                 </div>
 
                 {(() => {
@@ -958,256 +960,198 @@ export default function DuyetPanel({ onBack }) {
                   return (
                     <div
                       key={cardId}
-                      className={`review-card-item card-item-anim ${isRemoving ? 'card-fade-out' : ''}`}
+                      className={`review-card-item card-item-anim ${isRemoving ? 'card-fade-out' : ''} cyber-panel-glass p-8 rounded-2xl border flex flex-col gap-6 relative overflow-hidden`}
                       style={{
-                        borderRadius: '16px',
-                        border: isApproved 
-                          ? '1.5px solid rgba(16, 185, 129, 0.5)' 
-                          : '1px solid rgba(255,255,255,0.08)',
-                        background: isApproved 
-                          ? 'rgba(16, 185, 129, 0.06)' 
-                          : 'rgba(20,20,50,0.4)',
-                        backdropFilter: 'blur(16px)',
-                        boxShadow: isApproved 
-                          ? '0 12px 40px rgba(16, 185, 129, 0.2)' 
-                          : '0 8px 32px rgba(0,0,0,0.3)',
-                        padding: '2rem',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '1.2rem',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        position: 'relative',
-                        width: '100%',
-                        boxSizing: 'border-box',
+                        borderColor: isApproved ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.25)',
+                        background: isApproved ? 'rgba(16, 185, 129, 0.03)' : 'rgba(6, 6, 12, 0.65)',
+                        boxShadow: isApproved ? '0 15px 40px rgba(16, 185, 129, 0.15)' : '0 15px 40px rgba(239, 68, 68, 0.08)'
                       }}
                     >
-                      {/* Card Header Info */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.6rem' }}>
-                        <span style={{ fontSize: '0.82rem', fontWeight: '800', color: isApproved ? '#34d399' : 'rgba(252,165,165,0.8)', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          Thẻ #{deckCards.findIndex(c => (c.id || c._id) === cardId) + 1}
-                          {isApproved && <span style={{ background: '#10b981', color: 'white', fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '4px', textTransform: 'uppercase' }}>ĐÃ DUYỆT</span>}
+                      {/* Warning grid accent */}
+                      <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-red-600 via-violet-500 to-emerald-500" />
+                      
+                      {/* Card meta inside card */}
+                      <div className="flex items-center justify-between border-b border-white/5 pb-3 font-mono">
+                        <span className={`text-xs font-bold flex items-center gap-2 ${isApproved ? 'text-emerald-400' : 'text-red-400'}`}>
+                          <span>THẺ #{deckCards.findIndex(c => (c.id || c._id) === cardId) + 1}</span>
+                          {isApproved && <span className="bg-emerald-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded tracking-widest">APPROVED</span>}
                         </span>
-                        <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.25)' }}>
-                          Loại: {card.type || 'basic'}
-                        </span>
+                        <span className="text-[10px] text-white/30 uppercase">TYPE: {card.type || 'basic'}</span>
                       </div>
 
-                      {/* Card Content Textareas (Vertical structure) */}
-                      <div style={{ display: 'flex', gap: '1.2rem', width: '100%', flexDirection: 'column' }}>
-                        {/* Front text area */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <label style={{ fontSize: '0.7rem', fontWeight: '700', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                            Mặt trước (Từ khóa)
+                      {/* Textareas */}
+                      <div className="flex flex-col gap-5">
+                        {/* Front (Word) */}
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] font-mono font-bold tracking-widest text-white/40 uppercase">
+                            VẬT CHẤT MẶT TRƯỚC (CLOZE DELETION // FRONT)
                           </label>
                           <textarea
                             value={card.front || ''}
                             onChange={(e) => handleCardChange(cardId, 'front', e.target.value)}
                             onBlur={() => saveCardToBackend(card)}
-                            placeholder="Mặt trước (Từ khóa)..."
+                            placeholder="Nhập nội dung mặt trước..."
+                            className="w-full bg-black/40 border border-white/5 focus:border-violet-500/40 rounded-xl p-4 font-mono text-sm leading-relaxed text-white outline-none resize-y min-h-[110px] transition-all"
                             style={{
-                              width: '100%',
-                              background: 'rgba(255,255,255,0.02)',
-                              border: isApproved ? '1px dashed rgba(16, 185, 129, 0.3)' : '1px dashed rgba(255,255,255,0.1)',
-                              borderRadius: '10px',
-                              padding: '0.9rem',
-                              resize: 'vertical',
-                              color: 'white',
-                              fontSize: '0.98rem',
-                              fontWeight: '700',
-                              lineHeight: '1.6',
-                              fontFamily: 'inherit',
-                              outline: 'none',
-                              minHeight: '110px',
-                              boxSizing: 'border-box',
-                              transition: 'all 0.2s',
+                              borderStyle: 'dashed'
                             }}
                           />
                         </div>
 
-                        {/* Back text area */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <label style={{ fontSize: '0.7rem', fontWeight: '700', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                            Mặt sau (Đáp án)
+                        {/* Back (Translation) */}
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] font-mono font-bold tracking-widest text-white/40 uppercase">
+                            THÔNG TIN MẶT SAU (DIỄN GIẢI // TRANSLATION)
                           </label>
                           <textarea
                             value={card.back || ''}
                             onChange={(e) => handleCardChange(cardId, 'back', e.target.value)}
                             onBlur={() => saveCardToBackend(card)}
-                            placeholder="Mặt sau (Đáp án)..."
+                            placeholder="Nhập nội dung mặt sau..."
+                            className="w-full bg-black/30 border border-white/5 focus:border-violet-500/40 rounded-xl p-4 font-mono text-sm leading-relaxed text-white/80 outline-none resize-y min-h-[110px] transition-all"
                             style={{
-                              width: '100%',
-                              background: 'rgba(255,255,255,0.02)',
-                              border: isApproved ? '1px dashed rgba(16, 185, 129, 0.3)' : '1px dashed rgba(255,255,255,0.1)',
-                              borderRadius: '10px',
-                              padding: '0.9rem',
-                              resize: 'vertical',
-                              color: 'rgba(255, 255, 255, 0.9)',
-                              fontSize: '0.95rem',
-                              fontWeight: '400',
-                              lineHeight: '1.6',
-                              fontFamily: 'inherit',
-                              outline: 'none',
-                              minHeight: '110px',
-                              boxSizing: 'border-box',
-                              transition: 'all 0.2s',
+                              borderStyle: 'dashed'
                             }}
                           />
                         </div>
                       </div>
 
-                      {/* Card Actions Footer */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.8rem', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem' }}>
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-between gap-4 mt-2 border-t border-white/5 pt-5">
                         <button
-                          className="btn-reject"
                           onClick={() => handleRejectConfirm(card)}
                           disabled={isRemoving}
-                          style={{
-                            background: 'rgba(239,68,68,0.12)',
-                            color: '#f87171',
-                            border: '1px solid rgba(239,68,68,0.25)',
-                            padding: '0.6rem 1.4rem',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontSize: '0.85rem',
-                            fontWeight: '700',
-                            fontFamily: 'inherit',
-                          }}
+                          className="btn-erasing flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider text-red-400 bg-red-950/20 border border-red-500/20 hover:bg-red-500 hover:text-white hover:shadow-[0_0_15px_rgba(239,68,68,0.3)] transition-all duration-300 transform active:scale-95 cursor-pointer"
                         >
-                          ✗ Loại bỏ
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>ĐÀO THẢI // TIÊU HỦY</span>
                         </button>
+
                         <button
-                          className="btn-approve"
                           onClick={() => toggleApproveCard(cardId)}
                           disabled={isRemoving}
-                          style={{
-                            background: isApproved ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.15)',
-                            color: isApproved ? '#a7f3d0' : '#34d399',
-                            border: isApproved ? '1px solid rgba(16,185,129,0.5)' : '1px solid rgba(16,185,129,0.3)',
-                            padding: '0.6rem 1.6rem',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontSize: '0.85rem',
-                            fontWeight: '800',
-                            fontFamily: 'inherit',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                          }}
+                          className={`flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-300 transform active:scale-95 cursor-pointer ${
+                            isApproved 
+                              ? 'bg-emerald-500 text-black shadow-[0_0_20px_rgba(16,185,129,0.35)]' 
+                              : 'bg-emerald-950/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-black hover:shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+                          }`}
                         >
-                          {isApproved ? '✓ Đã duyệt' : '✓ Duyệt'}
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>{isApproved ? '✓ ĐÃ PHÊ DUYỆT' : 'PHÊ DUYỆT TRUYỀN TẢI'}</span>
                         </button>
                       </div>
                     </div>
                   );
                 })()}
+
               </div>
             </div>
           )}
         </main>
 
-        {/* ── RIGHT: Export panel ── */}
-        <aside style={{
-          width: '300px', flexShrink: 0,
-          background: 'rgba(6,8,20,0.8)',
-          borderLeft: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', flexDirection: 'column', gap: '0',
-          backdropFilter: 'blur(10px)',
-        }}>
-          <div style={{ padding: '1.2rem 1.2rem 0.8rem', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ fontSize: '0.65rem', fontWeight: '800', color: 'rgba(165,180,252,0.6)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '0.3rem' }}>
-              🎯 Xuất sang Bibliothek M2
+        {/* ── RIGHT SIDEBAR: Export & Transmission Gateway ── */}
+        <aside className="w-[320px] flex-shrink-0 bg-black/40 border-l border-white/5 flex flex-col backdrop-blur-xl">
+          {/* Header */}
+          <div className="p-5 border-b border-white/5 bg-black/20">
+            <div className="text-[10px] font-mono font-bold text-emerald-400/80 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              CỔNG TRUYỀN TẢI TRI THỨC
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.25)' }}>
-              Tổng cộng {deckCards.length} thẻ còn lại
+            <div className="text-[10px] font-mono text-white/30">
+              DỊCH CHUYỂN THẺ SANG THƯ VIỆN M2
             </div>
           </div>
 
-          {/* Middle scrollable content */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }} className="left-sidebar-scroll">
-
-            {/* Target lesson */}
-            <div>
-              <div style={{ fontSize: '0.7rem', fontWeight: '700', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '0.5rem' }}>
-                Bài lớn đích (M2 Chapter)
-              </div>
+          {/* Form Content */}
+          <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-6 left-sidebar-scroll">
+            
+            {/* Target Chapter Selection */}
+            <div className="flex flex-col gap-2.5">
+              <label className="text-[10px] font-mono font-bold text-white/40 uppercase tracking-wider">
+                BÀI HỌC ĐÍCH (M2 CHAPTER)
+              </label>
 
               {!showNewLessonInput ? (
-                <>
-                  <input
-                    type="text"
-                    placeholder="🔍 Tìm nhanh bài lớn..."
-                    value={lessonSearchQuery}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setLessonSearchQuery(val);
-                      const filtered = m2LessonsList.filter(l => l.toLowerCase().includes(val.toLowerCase()));
-                      if (filtered.length > 0) {
-                        setTargetLesson(filtered[0]);
-                      }
-                    }}
-                    style={{
-                      width: '100%', padding: '0.55rem 0.8rem', borderRadius: '10px',
-                      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                      color: 'white', fontSize: '0.8rem', outline: 'none', marginBottom: '0.5rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                  <select
-                    value={targetLesson}
-                    onChange={e => setTargetLesson(e.target.value)}
-                    style={{
-                      width: '100%', padding: '0.65rem 0.8rem', borderRadius: '10px',
-                      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                      color: 'white', fontSize: '0.82rem', outline: 'none', cursor: 'pointer',
-                      marginBottom: '0.5rem',
-                    }}
-                  >
-                    {m2LessonsList.length === 0 && <option value="">Đang tải bài lớn...</option>}
-                    {m2LessonsList
-                      .filter(lesson => lesson.toLowerCase().includes(lessonSearchQuery.toLowerCase()))
-                      .map(lesson => (
-                        <option key={lesson} value={lesson} style={{ background: '#0a0b20' }}>{lesson}</option>
-                      ))}
-                    {m2LessonsList.length > 0 && m2LessonsList.filter(lesson => lesson.toLowerCase().includes(lessonSearchQuery.toLowerCase())).length === 0 && (
-                      <option value="">Không tìm thấy bài học nào</option>
+                <div className="flex flex-col gap-2" ref={dropdownRef}>
+                  {/* Search input for target lesson */}
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/30">
+                      <Search className="w-3.5 h-3.5" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Tìm bài học..."
+                      value={lessonSearchQuery}
+                      onChange={e => {
+                        setLessonSearchQuery(e.target.value);
+                        setIsLessonDropdownOpen(true);
+                      }}
+                      onFocus={() => setIsLessonDropdownOpen(true)}
+                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-white/[0.02] border border-white/5 outline-none focus:border-red-500/30 text-white placeholder-white/30 transition-all"
+                    />
+                  </div>
+
+                  {/* Custom Dropdown Selector */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsLessonDropdownOpen(prev => !prev)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-white/[0.02] border border-white/5 text-xs text-left text-white/80 hover:bg-white/[0.05] transition-all flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="truncate">{targetLesson || "Chọn bài học..."}</span>
+                      <ChevronDown className="w-3.5 h-3.5 text-white/40" />
+                    </button>
+
+                    {isLessonDropdownOpen && (
+                      <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto z-50 rounded-xl border border-white/10 bg-[#0d0914] shadow-2xl left-sidebar-scroll">
+                        {filteredLessons.length === 0 ? (
+                          <div className="p-3 text-xs text-white/30 font-mono text-center">Không tìm thấy bài học</div>
+                        ) : (
+                          filteredLessons.map(lesson => (
+                            <button
+                              key={lesson}
+                              onClick={() => {
+                                setTargetLesson(lesson);
+                                setIsLessonDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-4 py-2 text-xs hover:bg-red-500/10 hover:text-red-400 transition-all font-mono truncate border-b border-white/[0.02] ${
+                                targetLesson === lesson ? 'text-red-400 bg-red-950/20 font-bold' : 'text-white/70'
+                              }`}
+                            >
+                              {lesson}
+                            </button>
+                          ))
+                        )}
+                      </div>
                     )}
-                  </select>
+                  </div>
+
                   <button
                     onClick={() => { setShowNewLessonInput(true); setLessonSearchQuery(''); }}
-                    style={{ ...btnStyle('rgba(99,102,241,0.1)', '#a5b4fc'), fontSize: '0.75rem', padding: '0.4rem 0.8rem', border: '1px dashed rgba(99,102,241,0.35)', width: '100%' }}
+                    className="flex items-center justify-center gap-1.5 w-full py-2 border border-dashed border-red-500/30 hover:border-red-500/50 rounded-xl text-[10px] font-mono text-red-400 bg-red-950/5 hover:bg-red-950/25 transition-all cursor-pointer"
                   >
-                    + Tạo bài lớn mới
+                    <Plus className="w-3 h-3" />
+                    TẠO BÀI HỌC MỚI
                   </button>
-                </>
+                </div>
               ) : (
-                <>
-                  <input
-                    type="text"
-                    value={newLessonName}
-                    onChange={e => setNewLessonName(e.target.value)}
-                    placeholder="Tên bài lớn mới..."
-                    autoFocus
-                    style={{
-                      width: '100%', padding: '0.65rem 0.8rem', borderRadius: '10px',
-                      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.4)',
-                      color: 'white', fontSize: '0.82rem', outline: 'none', marginBottom: '0.5rem',
-                      boxSizing: 'border-box',
-                    }}
-                  />
+                <div className="flex flex-col gap-3 p-4 rounded-xl border border-red-500/10 bg-red-950/5">
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[9px] font-mono text-red-400 uppercase">Tên bài học lớn</span>
+                    <input
+                      type="text"
+                      value={newLessonName}
+                      onChange={e => setNewLessonName(e.target.value)}
+                      placeholder="Nhập tên bài học..."
+                      className="w-full px-3 py-2 text-xs rounded-lg bg-black/40 border border-white/5 outline-none focus:border-red-500/30 text-white placeholder-white/20 transition-all"
+                    />
+                  </div>
                   
-                  {/* Select Specialty for new lesson */}
-                  <div style={{ marginBottom: '0.5rem' }}>
-                    <div style={{ fontSize: '0.65rem', fontWeight: '700', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-                      Chuyên khoa của bài học mới
-                    </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[9px] font-mono text-red-400 uppercase">Chuyên khoa định danh</span>
                     <select
                       value={newLessonSpecialty}
                       onChange={e => setNewLessonSpecialty(e.target.value)}
-                      style={{
-                        width: '100%', padding: '0.5rem 0.7rem', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: 'white', fontSize: '0.8rem', outline: 'none', cursor: 'pointer',
-                      }}
+                      className="w-full px-2 py-1.5 text-xs rounded-lg bg-black/40 border border-white/5 outline-none text-white cursor-pointer"
                     >
                       {medicalSpecialties.map(spec => (
                         <option key={spec} value={spec} style={{ background: '#0a0b20' }}>{spec}</option>
@@ -1217,195 +1161,130 @@ export default function DuyetPanel({ onBack }) {
 
                   <button
                     onClick={() => { setShowNewLessonInput(false); setNewLessonName(''); }}
-                    style={{ ...btnStyle('rgba(255,255,255,0.04)', 'rgba(255,255,255,0.4)'), fontSize: '0.72rem', padding: '0.35rem 0.8rem', width: '100%' }}
+                    className="w-full py-1.5 text-[9px] font-mono text-white/40 hover:text-white uppercase tracking-wider transition-all mt-1 cursor-pointer"
                   >
-                    ← Dùng bài lớn có sẵn
+                    ← Dùng bài học sẵn có
                   </button>
-                </>
+                </div>
               )}
             </div>
 
-            {/* Summary */}
-            <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '12px', padding: '0.9rem' }}>
-              <div style={{ fontSize: '0.7rem', color: 'rgba(165,180,252,0.7)', marginBottom: '0.5rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Tóm tắt hàng đợi
+            {/* Queue Summary Box */}
+            <div className="p-4 rounded-xl border border-white/5 bg-white/[0.01] flex flex-col gap-2 font-mono text-[11px] leading-relaxed text-white/60">
+              <div className="text-[9px] font-bold text-red-400 uppercase tracking-widest border-b border-white/5 pb-1 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                THÔNG SỐ BUỒNG DỊCH CHUYỂN
               </div>
-              <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)', lineHeight: '1.7' }}>
-                <div>📋 Còn lại: <strong style={{ color: '#a5b4fc' }}>{deckCards.length}</strong> thẻ cần duyệt</div>
-                <div>🎯 Bài đích: <strong style={{ color: '#a5b4fc' }}>{showNewLessonInput ? (newLessonName || '—') : (targetLesson || '—')}</strong></div>
-                {showNewLessonInput && (
-                  <div>🩺 Chuyên khoa: <strong style={{ color: '#a5b4fc' }}>{newLessonSpecialty}</strong></div>
-                )}
-                <div>📚 Module: <strong style={{ color: '#a5b4fc' }}>2 (Y Khoa)</strong></div>
-              </div>
+              <div>• THẺ TRONG BUỒNG: <span className="text-white font-bold">{deckCards.length}</span></div>
+              <div>• THẺ ĐÃ DUYỆT: <span className="text-emerald-400 font-bold">{approvedCardIds.size}</span></div>
+              <div>• ĐIỂM ĐẾN: <span className="text-red-400 font-bold truncate block max-w-full">{showNewLessonInput ? (newLessonName || '—') : (targetLesson || '—')}</span></div>
+              {showNewLessonInput && (
+                <div>• CHUYÊN KHOA: <span className="text-red-400 font-bold truncate block max-w-full">{newLessonSpecialty}</span></div>
+              )}
             </div>
 
-            {/* Export result */}
+            {/* Export action diagnostics */}
             {exportResult && (
-              <div style={{
-                background: exportResult.failed === 0 ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
-                border: `1px solid ${exportResult.failed === 0 ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}`,
-                borderRadius: '12px', padding: '0.9rem', fontSize: '0.82rem', lineHeight: '1.7',
-              }}>
-                <div style={{ fontWeight: '800', color: exportResult.failed === 0 ? '#34d399' : '#fbbf24', marginBottom: '0.3rem' }}>
-                  {exportResult.failed === 0 ? '🎉 Xuất thành công!' : '⚠️ Xuất hoàn tất'}
+              <div className="p-4 rounded-xl border border-emerald-500/25 bg-emerald-950/5 font-mono text-[11px] leading-relaxed">
+                <div className="font-bold text-emerald-400 uppercase tracking-widest border-b border-emerald-500/10 pb-1">
+                  BÁO CÁO DỊCH CHUYỂN
                 </div>
-                <div style={{ color: 'rgba(255,255,255,0.5)' }}>
-                  ✓ {exportResult.succeeded} card thành công<br />
-                  {exportResult.failed > 0 && <>✗ {exportResult.failed} card lỗi<br /></>}
-                  Đến: {exportResult.category}
+                <div className="text-white/60 mt-1.5">
+                  ✓ Thành công: <span className="text-emerald-400 font-bold">{exportResult.succeeded} thẻ</span><br />
+                  {exportResult.failed > 0 && <>✗ Lỗi tải: <span className="text-red-400 font-bold">{exportResult.failed} thẻ</span><br /></>}
+                  Điểm đến: {exportResult.category}
                 </div>
               </div>
             )}
+
           </div>
 
-          {/* Launch button container - sticky at the bottom */}
-          <div style={{ padding: '1.2rem', borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(6,8,20,0.95)' }}>
+          {/* Sticky Ignition Deploy button */}
+          <div className="p-5 border-t border-white/5 bg-black/40 backdrop-blur-xl">
             <button
               onClick={handleExportApproved}
               disabled={exporting || approvedCardIds.size === 0}
-              style={{
-                width: '100%', padding: '1rem', borderRadius: '14px',
-                background: approvedCardIds.size === 0
-                  ? 'rgba(255,255,255,0.04)'
-                  : 'linear-gradient(135deg, #10b981, #059669)',
-                border: 'none', color: approvedCardIds.size === 0 ? 'rgba(255,255,255,0.2)' : 'white',
-                fontSize: '0.95rem', fontWeight: '800', cursor: approvedCardIds.size === 0 ? 'not-allowed' : 'pointer',
-                letterSpacing: '1px', textTransform: 'uppercase',
-                boxShadow: approvedCardIds.size > 0 ? '0 4px 20px rgba(16,185,129,0.3)' : 'none',
-                transition: 'all 0.3s ease',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem',
-                fontFamily: 'inherit',
-              }}
+              className={`w-full py-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 transform active:scale-95 cursor-pointer flex items-center justify-center gap-2 ${
+                approvedCardIds.size === 0
+                  ? 'bg-white/[0.02] border border-white/5 text-white/20 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 text-black shadow-[0_4px_30px_rgba(16,185,129,0.35)] hover:shadow-[0_4px_40px_rgba(16,185,129,0.5)]'
+              }`}
             >
-              {exporting ? '🚀 Đang xuất...' : `🚀 Xuất (${approvedCardIds.size} Thẻ)`}
+              {exporting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>ĐANG DỊCH CHUYỂN THỂ TRI THỨC...</span>
+                </>
+              ) : (
+                <>
+                  <span>🚀 KÍCH HOẠT DỊCH CHUYỂN ({approvedCardIds.size} THẺ)</span>
+                </>
+              )}
             </button>
           </div>
         </aside>
       </div>
 
-      {/* Toast */}
+      {/* Dynamic Action Toast */}
       {toast && (
-        <div style={{
-          position: 'fixed', bottom: '2rem', left: '50%', transform: 'translateX(-50%)',
-          background: toast.type === 'success' ? 'rgba(16,185,129,0.95)' : toast.type === 'error' ? 'rgba(239,68,68,0.95)' : 'rgba(30,30,60,0.95)',
-          color: 'white', padding: '0.8rem 1.8rem', borderRadius: '12px',
-          fontSize: '0.88rem', fontWeight: '600', zIndex: 9999,
-          boxShadow: '0 8px 25px rgba(0,0,0,0.4)',
-          animation: 'fadeIn 0.25s ease',
-        }}>
-          {toast.msg}
+        <div className={`fixed bottom-8 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl text-xs font-bold font-mono tracking-wider z-50 shadow-2xl flex items-center gap-2 animate-[fadeIn_0.2s_ease-out] ${
+          toast.type === 'success' 
+            ? 'bg-emerald-500 text-black shadow-emerald-500/20' 
+            : toast.type === 'error' 
+              ? 'bg-red-500 text-white shadow-red-500/20' 
+              : 'bg-zinc-900 border border-white/10 text-white'
+        }`}>
+          <AlertOctagon className="w-4 h-4" />
+          <span>{toast.msg}</span>
         </div>
       )}
 
-      {/* ── Custom Confirmation Modal ── */}
+      {/* ── HIGH SECURITY CONFIRM MODAL ── */}
       {cardToDelete && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(5, 5, 12, 0.85)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          animation: 'fadeIn 0.2s ease-out',
-        }}>
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(20, 15, 38, 0.96) 0%, rgba(10, 10, 22, 0.98) 100%)',
-            border: '1.5px solid rgba(239, 68, 68, 0.35)',
-            boxShadow: '0 0 30px rgba(239, 68, 68, 0.25), inset 0 0 15px rgba(239, 68, 68, 0.1)',
-            borderRadius: '20px',
-            padding: '2rem',
-            width: '90%',
-            maxWidth: '420px',
-            boxSizing: 'border-box',
-            textAlign: 'center',
-            transform: 'scale(1)',
-            animation: 'confirmZoomIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
-          }}>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[9999] animate-[fadeIn_0.15s_ease-out]">
+          <div 
+            className="w-full max-w-md p-8 rounded-2xl border border-red-500/40 relative overflow-hidden"
+            style={{
+              background: 'linear-gradient(135deg, #0e0508 0%, #050209 100%)',
+              boxShadow: '0 0 40px rgba(239, 68, 68, 0.25)'
+            }}
+          >
+            {/* Critical warning stripes */}
+            <div 
+              className="absolute top-0 left-0 w-full h-2.5" 
+              style={{
+                backgroundImage: 'repeating-linear-gradient(45deg, #ef4444, #ef4444 8px, #000 8px, #000 16px)'
+              }}
+            />
+
             {/* Warning icon */}
-            <div style={{
-              width: '60px',
-              height: '60px',
-              borderRadius: '50%',
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1.5px solid rgba(239, 68, 68, 0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 1.2rem auto',
-              boxShadow: '0 0 15px rgba(239, 68, 68, 0.15)',
-            }}>
-              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#f87171" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
+            <div className="w-14 h-14 rounded-full bg-red-950/40 border border-red-500/30 flex items-center justify-center mx-auto mb-4 mt-2 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+              <AlertOctagon className="w-7 h-7 text-red-500 animate-bounce" />
             </div>
 
             {/* Title */}
-            <h3 style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '1.25rem',
-              fontWeight: '800',
-              color: 'white',
-              marginBottom: '0.6rem',
-              letterSpacing: '0.5px',
-            }}>
-              XÁC NHẬN LOẠI BỎ
+            <h3 className="text-center font-mono font-black text-sm text-red-500 tracking-widest uppercase mb-2">
+              LỆNH LOẠI BỎ THẺ // TIÊU HỦY VĨNH VIỄN
             </h3>
 
-            {/* Message */}
-            <p style={{
-              fontSize: '0.88rem',
-              color: 'rgba(255, 255, 255, 0.65)',
-              lineHeight: '1.6',
-              marginBottom: '1.8rem',
-            }}>
-              Bạn có chắc chắn muốn loại bỏ thẻ này không? Hành động này sẽ xóa thẻ vĩnh viễn khỏi hàng đợi duyệt.
+            {/* Warning text */}
+            <p className="text-xs text-white/60 font-mono leading-relaxed text-center mb-6 border-y border-white/5 py-4 my-4">
+              CẢNH BÁO CẤP CAO: HÀNH ĐỘNG NÀY SẼ TIÊU HỦY THẺ FLASHCARD RA KHỎI LÕI LƯỢNG TỬ VÀ KHÔNG THỂ HỒI ĐÁP PHỤC HỒI.
             </p>
 
-            {/* Action buttons */}
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+            {/* Controls */}
+            <div className="flex gap-4 font-mono">
               <button
                 onClick={() => setCardToDelete(null)}
-                style={{
-                  flex: 1,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  color: 'rgba(255, 255, 255, 0.7)',
-                  padding: '0.75rem',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  fontSize: '0.88rem',
-                  fontWeight: '700',
-                  transition: 'all 0.2s ease',
-                  fontFamily: 'inherit',
-                }}
-                className="btn-cancel-modal"
+                className="flex-1 py-3 text-xs font-bold rounded-xl border border-white/10 hover:border-white/20 text-white/70 hover:text-white transition-all cursor-pointer text-center"
               >
-                Hủy bỏ
+                HỦY BỎ LỆNH
               </button>
               <button
                 onClick={handleConfirmDelete}
-                style={{
-                  flex: 1,
-                  background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
-                  border: 'none',
-                  color: 'white',
-                  padding: '0.75rem',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  fontSize: '0.88rem',
-                  fontWeight: '800',
-                  boxShadow: '0 4px 15px rgba(239, 68, 68, 0.35)',
-                  transition: 'all 0.2s ease',
-                  fontFamily: 'inherit',
-                }}
-                className="btn-confirm-modal"
+                className="flex-1 py-3 text-xs font-black rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white hover:shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all cursor-pointer text-center"
               >
-                Đồng ý xóa
+                XÁC NHẬN TIÊU HỦY
               </button>
             </div>
           </div>
@@ -1415,34 +1294,13 @@ export default function DuyetPanel({ onBack }) {
   );
 }
 
-// ── Helper sub-components ───────────────────────────────────────────────
-function Chip({ color, label }) {
-  return (
-    <div style={{
-      background: `${color}22`, border: `1px solid ${color}55`,
-      color, padding: '0.25rem 0.7rem', borderRadius: '8px',
-      fontSize: '0.75rem', fontWeight: '700',
-    }}>{label}</div>
-  );
-}
-
+// ── Secondary sub-components ───────────────────────────────────────────────
 function EmptyState({ icon, title, sub }) {
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.8rem', color: 'rgba(255,255,255,0.2)', padding: '3rem' }}>
-      <span style={{ fontSize: '4rem' }}>{icon}</span>
-      <p style={{ fontSize: '1rem', fontWeight: '600', textAlign: 'center' }}>{title}</p>
-      {sub && <p style={{ fontSize: '0.8rem', textAlign: 'center', color: 'rgba(255,255,255,0.12)' }}>{sub}</p>}
+    <div className="flex-1 flex flex-col items-center justify-center p-12 text-center select-none animate-[fadeIn_0.5s_ease-out]">
+      <div className="mb-6">{icon}</div>
+      <h3 className="text-sm font-mono font-bold tracking-widest text-white/60 uppercase">{title}</h3>
+      {sub && <p className="text-xs font-mono text-white/30 max-w-md mt-2">{sub}</p>}
     </div>
   );
-}
-
-function btnStyle(bg, color, mono = false) {
-  return {
-    background: bg, color,
-    padding: '0.65rem 1rem', borderRadius: '10px',
-    border: 'none', cursor: 'pointer',
-    fontSize: mono ? '1rem' : '0.88rem',
-    fontWeight: '700', transition: 'all 0.2s',
-    fontFamily: mono ? 'monospace' : 'inherit',
-  };
 }

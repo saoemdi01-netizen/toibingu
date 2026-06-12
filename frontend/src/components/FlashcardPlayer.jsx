@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Volume2, X, Save, ArrowLeft, ArrowRight, GraduationCap } from 'lucide-react';
 
 const getFrontWord = (word, category) => {
   if (category === 'General') {
@@ -6,11 +7,9 @@ const getFrontWord = (word, category) => {
   }
   const lines = word.split('\n');
   const actualWord = lines.length > 1 ? lines.slice(1).join('\n') : lines[0];
-  // Replace all {{c1::answer::hint}} or {{c2::answer}} with [...]
   return actualWord.replace(/\{\{c\d+::(.*?)(?::.*?)?\}\}/g, '[...]');
 };
 
-// Renders back-face word: reveals cloze answers in green capsule,
 const getClozeAnswers = (word) => {
   const regex = /\{\{c\d+::(.*?)(?::.*?)?\}\}/g;
   const answers = [];
@@ -24,56 +23,6 @@ const getClozeAnswers = (word) => {
   return answers;
 };
 
-// with optional inline Vietnamese translation appended in parens.
-const renderBackWordWithHighlights = (word, clozeTranslations) => {
-  const lines = word.split('\n');
-  const actualWord = lines.length > 1 ? lines.slice(1).join('\n') : lines[0];
-
-  const regex = /\{\{c\d+::(.*?)(?::.*?)?\}\}/g;
-  const parts = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(actualWord)) !== null) {
-    const matchIndex = match.index;
-    const answer = match[1];
-    const translation = clozeTranslations ? clozeTranslations[answer] : null;
-
-    if (matchIndex > lastIndex) {
-      parts.push(actualWord.substring(lastIndex, matchIndex));
-    }
-
-    parts.push(
-      <span
-        key={matchIndex}
-        style={{
-          color: '#4ade80',
-          fontWeight: 'bold',
-          background: 'rgba(74, 222, 128, 0.15)',
-          padding: '2px 8px',
-          borderRadius: '4px',
-          border: '1px solid rgba(74, 222, 128, 0.3)',
-        }}
-      >
-        {answer}
-        {translation && (
-          <span style={{ color: '#86efac', fontWeight: '400', fontSize: '0.88em', marginLeft: '4px' }}>
-            ({translation})
-          </span>
-        )}
-      </span>
-    );
-
-    lastIndex = regex.lastIndex;
-  }
-
-  if (lastIndex < actualWord.length) {
-    parts.push(actualWord.substring(lastIndex));
-  }
-
-  return parts;
-};
-
 export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionStates, onCancelSession }) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -82,13 +31,10 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
   const [sessionStates, setSessionStates] = useState({});
   const [gradedStates, setGradedStates] = useState({});
   const audioBtnRef = useRef(null);
-
-  // cloze keyword → Vietnamese translation map for current card
   const [clozeTranslations, setClozeTranslations] = useState({});
 
   const currentCard = cards[currentIndex];
 
-  // On card change, extract cloze answers and translate each keyword
   useEffect(() => {
     if (!currentCard || currentCard.category === 'General') {
       setClozeTranslations({});
@@ -98,7 +44,6 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
     let isMounted = true;
 
     const extractAndTranslateClozes = async () => {
-      // Extract unique cloze answers from word field
       const regex = /\{\{c\d+::(.*?)(?::.*?)?\}\}/g;
       const clozes = [];
       let m;
@@ -133,18 +78,15 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
     return () => { isMounted = false; };
   }, [currentIndex, currentCard]);
 
-  // Keep currentIndex in sync with startIndex prop
   useEffect(() => {
     setCurrentIndex(startIndex);
     setIsFlipped(false);
   }, [startIndex]);
 
-  // Reset lastCardGraded when card changes
   useEffect(() => {
     setLastCardGraded(false);
   }, [currentIndex]);
 
-  // Initialise sessionStates from DB state
   useEffect(() => {
     const initialStates = {};
     cards.forEach(card => {
@@ -272,138 +214,115 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
       <div className="empty-state-card">
         <div className="empty-state-icon">📭</div>
         <h3 className="empty-state-title">Keine Karten</h3>
-        <p className="empty-state-text">Không có từ vựng nào khớp với bộ lọc.</p>
+        <p className="empty-state-text">Không có từ vựng nào khớp với bộ lọc của bạn.</p>
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-
+    <div className="w-full flex flex-col items-center select-none">
+      
       {/* Session Controls bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', width: '100%', maxWidth: '680px', alignItems: 'center' }}>
+      <div className="flex justify-between items-center w-full max-w-[680px] mb-5 gap-4">
         <button
           onClick={onCancelSession}
-          style={{
-            background: 'rgba(239, 68, 68, 0.15)',
-            color: '#fca5a5',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            padding: '0.5rem 1rem',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '0.85rem',
-            fontWeight: '600',
-            transition: 'all 0.2s',
-          }}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-950/20 hover:bg-red-950/45 border border-red-900/30 text-red-400 hover:text-red-300 font-semibold text-xs active:scale-[0.98] transition-all duration-200 cursor-pointer"
           title="Thoát ra ngoài và hủy toàn bộ kết quả vừa ôn"
         >
-          🛑 Kết thúc ôn (Hủy / ESC)
+          <X className="w-4.5 h-4.5" />
+          <span>KẾT THÚC ÔN (ESC)</span>
         </button>
 
         <button
           onClick={handleFinishAndSave}
-          style={{
-            background: 'var(--accent-primary)',
-            color: 'white',
-            border: 'none',
-            padding: '0.5rem 1rem',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '0.85rem',
-            fontWeight: '600',
-            boxShadow: '0 4px 10px rgba(99, 102, 241, 0.3)',
-          }}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-stone-100 text-stone-950 font-bold text-xs hover:shadow-[0_0_20px_rgba(255,255,255,0.15)] active:scale-[0.98] transition-all duration-200 cursor-pointer border border-stone-200"
         >
-          💾 Hoàn thành &amp; Lưu
+          <Save className="w-4.5 h-4.5 text-stone-900" />
+          <span>HOÀN THÀNH & LƯU</span>
         </button>
       </div>
 
-      <div className="flashcard-player">
+      {/* Laser progress indicator */}
+      <div className="w-full max-w-[680px] h-1.5 bg-stone-900/80 border border-stone-850 rounded-full overflow-hidden relative mb-6">
+        <div 
+          className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-emerald-500 to-cyan-400 shadow-[0_0_10px_#10b981] transition-all duration-300 ease-out" 
+          style={{ width: `${((currentIndex + 1) / cards.length) * 100}%` }} 
+        />
+      </div>
 
+      {/* Flashcard Player Box */}
+      <div className="flashcard-player relative">
         {currentCard.category === 'General' && (
           <button
-            className="card-audio-btn"
+            className="absolute top-5 right-5 z-20 w-11 h-11 rounded-full bg-stone-900/60 backdrop-blur-md border border-stone-800/80 text-stone-400 hover:text-white hover:border-stone-700 hover:scale-105 active:scale-[0.97] transition-all duration-250 flex items-center justify-center cursor-pointer shadow-lg"
             onClick={(e) => { e.stopPropagation(); speakWord(currentCard.word); }}
             title="Phát âm từ vựng (Nhấn R)"
           >
-            🔊
+            <Volume2 className="w-4.5 h-4.5" />
           </button>
         )}
 
         <div className={`flashcard-deck ${isFlipped ? 'flipped' : ''}`} onClick={() => setIsFlipped(!isFlipped)}>
-
+          
           {/* FRONT FACE */}
-          <div className="card-face card-front">
-            <span className="category-tag">{currentCard.category}</span>
-            <div className="card-main-content">
+          <div className="card-face card-front relative flex flex-col justify-between p-8">
+            <span className="category-tag self-start">{currentCard.category}</span>
+            
+            <div className="card-main-content w-full flex flex-col items-center justify-center text-center my-auto">
               <h2
-                className="card-word"
+                className="card-word font-display font-medium tracking-tight text-white leading-tight"
                 style={{
-                  fontSize: currentCard.category === 'General' ? '2.2rem' : '1.3rem',
-                  fontWeight: '700',
-                  lineHeight: '1.5',
+                  fontSize: currentCard.category === 'General' ? '2.5rem' : '1.45rem',
                   whiteSpace: currentCard.category === 'General' ? 'normal' : 'pre-wrap',
                   textAlign: currentCard.category === 'General' ? 'center' : 'left',
                   width: '100%',
-                  padding: '0 1rem',
                 }}
               >
                 {getFrontWord(currentCard.word, currentCard.category)}
               </h2>
-              <p className="card-instructions" style={{ marginTop: '1rem' }}>Chạm vào thẻ hoặc ấn SPACE để xem nghĩa</p>
+              <span className="text-[10px] text-stone-500 font-mono tracking-widest uppercase mt-6 block">
+                [ Click thẻ hoặc nhấn Space để dịch ]
+              </span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
+            
+            <div className="flex justify-center h-6">
               {isCurrentCardLearned && (
-                <span style={{ fontSize: '0.8rem', color: 'var(--status-learned)', background: 'rgba(16, 185, 129, 0.1)', padding: '0.25rem 0.6rem', borderRadius: '20px' }}>
-                  ✓ Đã đánh dấu thuộc trong bài này
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+                  ✓ Đã thuộc
                 </span>
               )}
             </div>
           </div>
 
           {/* BACK FACE */}
-          <div className={`card-face card-back${currentCard.category !== 'General' ? ' card-back-clinical' : ''}`}>
-            <span className="category-tag">{currentCard.category}</span>
-            <div className="card-main-content" style={{ justifyContent: 'center', gap: '1rem' }}>
-
-              {/* ── Clinical card: Cloze answers badges or translation ── */}
+          <div className={`card-face card-back ${currentCard.category !== 'General' ? 'card-back-clinical' : ''} relative flex flex-col justify-between p-8`}>
+            <span className="category-tag self-start">{currentCard.category}</span>
+            
+            <div className="card-main-content flex-1 w-full flex flex-col justify-center gap-4 my-auto overflow-y-auto no-scrollbar pr-1">
+              
+              {/* Clinical Card details */}
               {currentCard.category !== 'General' && (
                 (() => {
                   const clozes = getClozeAnswers(currentCard.word);
                   if (clozes.length > 0) {
                     return (
                       <>
-                        <div style={{
-                          width: '100%',
-                          padding: '1rem 1.2rem',
-                          background: 'rgba(74, 222, 128, 0.04)',
-                          borderLeft: '3px solid rgba(74, 222, 128, 0.6)',
-                          borderRadius: '0 8px 8px 0',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '0.5rem',
-                        }}>
-                          <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.8 }}>
-                            ✦ Đáp án
+                        {/* Answers block */}
+                        <div className="w-full p-4 rounded-xl border border-emerald-500/10 bg-emerald-500/5 border-l-3 border-l-emerald-500 flex flex-col gap-2.5 text-left">
+                          <div className="text-[9px] font-bold text-emerald-400 tracking-[0.15em] uppercase flex items-center gap-1.5 opacity-80">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            ✦ ĐÁP ÁN ĐÃ GIẢI MÃ
                           </div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', marginTop: '0.2rem' }}>
+                          
+                          <div className="flex flex-wrap gap-2">
                             {clozes.map((ans, idx) => (
                               <span
                                 key={idx}
-                                style={{
-                                  color: '#4ade80',
-                                  fontWeight: '800',
-                                  background: 'rgba(74, 222, 128, 0.15)',
-                                  padding: '0.35rem 0.85rem',
-                                  borderRadius: '6px',
-                                  border: '1px solid rgba(74, 222, 128, 0.3)',
-                                  fontSize: '1.05rem',
-                                  boxShadow: '0 0 10px rgba(74, 222, 128, 0.1)',
-                                }}
+                                className="inline-flex items-center text-xs font-semibold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-lg shadow-sm"
                               >
                                 {ans}
                                 {clozeTranslations[ans] && (
-                                  <span style={{ color: '#86efac', fontWeight: '400', fontSize: '0.82em', marginLeft: '6px' }}>
+                                  <span className="text-[10px] font-normal text-emerald-300 ml-1.5 font-sans opacity-90">
                                     ({clozeTranslations[ans]})
                                   </span>
                                 )}
@@ -412,93 +331,73 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
                           </div>
                         </div>
 
-                        {/* Explanation / translation for cloze card */}
-                        <div style={{
-                          width: '100%',
-                          padding: '0.9rem 1rem 0.9rem 1.1rem',
-                          background: 'rgba(99, 102, 241, 0.04)',
-                          borderLeft: '3px solid rgba(129, 140, 248, 0.6)',
-                          borderRadius: '0 8px 8px 0',
-                          fontSize: '0.95rem',
-                          lineHeight: '1.7',
-                          color: '#dde6f5',
-                          whiteSpace: 'pre-wrap',
-                          marginTop: '0.2rem',
-                        }}>
-                          <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.45rem', opacity: 0.8 }}>
-                            📋 Giải thích / Dịch nghĩa
+                        {/* Translation block */}
+                        <div className="w-full p-4 rounded-xl border border-indigo-500/10 bg-indigo-500/5 border-l-3 border-l-indigo-500 flex flex-col gap-2 text-left">
+                          <div className="text-[9px] font-bold text-indigo-300 tracking-[0.15em] uppercase flex items-center gap-1.5 opacity-80">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                            📋 PHÂN TÍCH CA LÂM SÀNG
                           </div>
-                          <div className="card-back-translation" style={{ color: '#c8d3e8', fontSize: '0.95rem' }}>
+                          <p className="text-xs text-stone-300 leading-relaxed font-light font-sans whitespace-pre-wrap">
                             {currentCard.translation}
-                          </div>
+                          </p>
                         </div>
                       </>
                     );
                   } else {
                     return (
-                      <div style={{
-                        width: '100%',
-                        padding: '1.2rem 1.5rem',
-                        background: 'rgba(74, 222, 128, 0.04)',
-                        borderLeft: '4px solid rgba(74, 222, 128, 0.6)',
-                        borderRadius: '0 8px 8px 0',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.6rem',
-                      }}>
-                        <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.8 }}>
-                          ✦ Đáp án
+                      <div className="w-full p-5 rounded-xl border border-emerald-500/10 bg-emerald-500/5 border-l-3 border-l-emerald-500 flex flex-col gap-2 text-left">
+                        <div className="text-[9px] font-bold text-emerald-400 tracking-[0.15em] uppercase opacity-80">
+                          ✦ ĐÁP ÁN Y KHOA
                         </div>
-                        <div style={{
-                          color: '#4ade80',
-                          fontWeight: '800',
-                          fontSize: '1.25rem',
-                          lineHeight: '1.5',
-                          whiteSpace: 'pre-wrap',
-                        }}>
+                        <p className="text-sm font-semibold text-emerald-400 whitespace-pre-wrap leading-relaxed">
                           {currentCard.translation}
-                        </div>
+                        </p>
                       </div>
                     );
                   }
                 })()
               )}
 
-              {/* ── Explanation / vocab translation (General category only) ── */}
+              {/* General Card details */}
               {currentCard.category === 'General' && (
-                <div
-                  className="card-back-translation"
-                  style={{
-                    whiteSpace: 'pre-wrap',
-                    textAlign: 'center',
-                    fontSize: '1.8rem',
-                    fontWeight: '700',
-                    color: '#a5b4fc',
-                  }}
-                >
-                  {currentCard.translation}
+                <div className="text-center space-y-4">
+                  <h3 className="text-2xl font-bold tracking-tight text-indigo-300 font-display">
+                    {currentCard.translation}
+                  </h3>
+                  
+                  {currentCard.example && (
+                    <div className="card-example-box w-full max-w-[90%] mx-auto p-4 rounded-xl border border-stone-800 bg-stone-950/50 border-l-3 border-l-indigo-500 text-left" onClick={(e) => e.stopPropagation()}>
+                      <div className="text-[9px] font-bold text-stone-500 tracking-[0.15em] uppercase mb-1.5">VÍ DỤ MINH HỌA</div>
+                      <p className="text-xs text-stone-300 font-light italic leading-relaxed font-sans">{currentCard.example}</p>
+                      {currentCard.exampleTranslation && (
+                        <p className="text-xs text-stone-400/80 font-light mt-2 border-t border-stone-900/50 pt-2 font-sans">{currentCard.exampleTranslation}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Example sentence for General vocab cards */}
-              {currentCard.category === 'General' && (
-                <div className="card-example-box" onClick={(e) => e.stopPropagation()}>
-                  <div className="card-example-title">Ví dụ minh họa:</div>
-                  <p className="card-example-content">{currentCard.example}</p>
-                </div>
-              )}
             </div>
 
-            {/* ── Action buttons ── */}
-            <div className="card-back-actions" onClick={(e) => e.stopPropagation()}>
+            {/* Action buttons footer */}
+            <div className="card-back-actions flex gap-3 border-t border-stone-900/60 pt-4 mt-2" onClick={(e) => e.stopPropagation()}>
               <button
-                className={`btn-state ${isCurrentCardUnlearned ? 'unlearned' : ''}`}
+                className={`flex-1 h-10 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                  isCurrentCardUnlearned 
+                    ? "bg-red-500/20 border border-red-500/40 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.15)]" 
+                    : "bg-stone-900/45 border border-stone-850 hover:border-red-900/40 hover:bg-red-950/10 hover:text-red-400 text-stone-400"
+                }`}
                 onClick={() => markLocalState(false)}
               >
                 ✗ Chưa Thuộc
               </button>
+              
               <button
-                className={`btn-state ${isCurrentCardLearned ? 'learned' : ''}`}
+                className={`flex-1 h-10 rounded-xl font-bold text-xs transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                  isCurrentCardLearned 
+                    ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" 
+                    : "bg-stone-900/45 border border-stone-850 hover:border-emerald-900/40 hover:bg-emerald-950/10 hover:text-emerald-400 text-stone-400"
+                }`}
                 onClick={() => markLocalState(true)}
               >
                 ✓ Đã Thuộc
@@ -509,13 +408,29 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
         </div>
       </div>
 
-      {/* Navigation */}
-      <div className="player-navigation">
-        <div className="nav-arrows">
-          <button className="btn-nav" onClick={handlePrev} disabled={currentIndex === 0}>←</button>
-          <button className="btn-nav" onClick={handleNext} disabled={currentIndex === cards.length - 1}>→</button>
+      {/* Navigation Footer */}
+      <div className="player-navigation flex justify-between items-center w-full max-w-[680px] mt-6 gap-4">
+        <div className="nav-arrows flex gap-2">
+          <button 
+            className="w-11 h-11 rounded-full border border-stone-800 bg-stone-950/40 text-stone-400 hover:text-white hover:border-stone-700 transition-colors flex items-center justify-center cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed" 
+            onClick={handlePrev} 
+            disabled={currentIndex === 0}
+          >
+            <ArrowLeft className="w-4.5 h-4.5" />
+          </button>
+          
+          <button 
+            className="w-11 h-11 rounded-full border border-stone-800 bg-stone-950/40 text-stone-400 hover:text-white hover:border-stone-700 transition-colors flex items-center justify-center cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed" 
+            onClick={handleNext} 
+            disabled={currentIndex === cards.length - 1}
+          >
+            <ArrowRight className="w-4.5 h-4.5" />
+          </button>
         </div>
-        <span className="deck-progress-text">Thẻ {currentIndex + 1} / {cards.length}</span>
+        
+        <span className="deck-progress-text font-mono text-xs text-stone-500 font-semibold tracking-tight">
+          THẺ {currentIndex + 1} / {cards.length}
+        </span>
       </div>
 
     </div>

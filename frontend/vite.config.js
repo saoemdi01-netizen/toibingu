@@ -7,11 +7,7 @@ export default defineConfig({
     port: 3001,
     host: true,
     proxy: {
-      '/api/decks': {
-        target: 'http://localhost:5000',
-        changeOrigin: true
-      },
-      '/api/cards': {
+      '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true
       }

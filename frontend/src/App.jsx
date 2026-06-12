@@ -1,9 +1,25 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Compass, LogOut, ChevronDown, AlertCircle, Volume2, VolumeX, Zap, BookOpen, History, Globe, Trash2, Check, Search, Plus, ArrowLeft, RefreshCw, Layers } from 'lucide-react';
 import FlashcardPlayer from './components/FlashcardPlayer';
 import LightningDecksView from './components/LightningDecksView';
 import DuyetPanel from './components/DuyetPanel';
+import LoginScreen from './components/LoginScreen';
+import WorldCard from './components/WorldCard';
+import WorldDetails from './components/WorldDetails';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    return `${protocol}//${hostname}:5000/api`;
+  }
+  return 'http://localhost:5000/api';
+};
+const API_BASE_URL = getApiBaseUrl();
 
 // =====================================================================
 // AnkiToast — notification popup khi thêm card vào Anki
@@ -770,6 +786,34 @@ export default function App() {
   const ytPlayerRef = useRef(null);
   const ytReadyRef = useRef(false);
   const musicContainerRef = useRef(null);
+
+  // Các phân cảnh (chapter timestamps) của video iLO-UptQNYo
+  // Mỗi lần đăng nhập random 1 phân cảnh khác nhau
+  const YT_MUSIC_SCENES = [
+    { start: 0,    label: 'Intro' },
+    { start: 180,  label: 'Scene 2' },
+    { start: 420,  label: 'Scene 3' },
+    { start: 660,  label: 'Scene 4' },
+    { start: 900,  label: 'Scene 5' },
+    { start: 1140, label: 'Scene 6' },
+    { start: 1380, label: 'Scene 7' },
+    { start: 1620, label: 'Scene 8' },
+    { start: 1860, label: 'Scene 9' },
+    { start: 1951, label: 'Scene 10 (t=1951s)' },
+    { start: 2100, label: 'Scene 11' },
+    { start: 2340, label: 'Scene 12' },
+    { start: 2580, label: 'Scene 13' },
+    { start: 2820, label: 'Scene 14' },
+    { start: 3060, label: 'Scene 15' },
+    { start: 3300, label: 'Scene 16' },
+    { start: 3540, label: 'Scene 17' },
+    { start: 3780, label: 'Scene 18' },
+  ];
+  // Chọn ngẫu nhiên 1 phân cảnh mỗi session (lưu trong useRef để không đổi khi re-render)
+  const ytSceneRef = useRef(null);
+  if (ytSceneRef.current === null) {
+    ytSceneRef.current = YT_MUSIC_SCENES[Math.floor(Math.random() * YT_MUSIC_SCENES.length)];
+  }
   
   // Auth & Login States
   const [currentUser, setCurrentUser] = useState(() => {
@@ -788,6 +832,14 @@ export default function App() {
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginSuccessMsg, setLoginSuccessMsg] = useState('');
+  const [isSucking, setIsSucking] = useState(false);
+  const [hasLoggedOut, setHasLoggedOut] = useState(false);
+  const [activeWorldIndex, setActiveWorldIndex] = useState(0);
+  const [selectedWorld, setSelectedWorld] = useState(null);
+  const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
+  const scrollContainerRef = useRef(null);
+  const isScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef(null);
 
   // Desktop check for music
   const isDesktop = typeof window !== 'undefined' && window.innerWidth > 1024 && !/Mobi|Android|iPhone|iPad|Tablet/i.test(navigator.userAgent);
@@ -834,13 +886,14 @@ export default function App() {
         } catch(e) {}
         return;
       }
+      const scene = ytSceneRef.current;
       ytPlayerRef.current = new window.YT.Player('yt-music-player', {
         height: '1',
         width: '1',
-        videoId: 'SlQR9iu09bQ',
+        videoId: 'iLO-UptQNYo',
         playerVars: {
           autoplay: 1,
-          start: 107,
+          start: scene.start,
           controls: 0,
           disablekb: 1,
           fs: 0,
@@ -854,11 +907,16 @@ export default function App() {
             ytReadyRef.current = true;
             event.target.setVolume(25);
             event.target.playVideo();
-            // Unmute khi click vào ô tài khoản (login) hoặc bất kỳ tương tác nào (module picker)
           },
           onStateChange: (event) => {
+            // Khi video kết thúc: chọn phân cảnh tiếp theo (loop qua các scene)
             if (event.data === 0) {
-              event.target.seekTo(25, true);
+              const scenes = YT_MUSIC_SCENES;
+              const currentStart = ytSceneRef.current.start;
+              const currentIdx = scenes.findIndex(s => s.start === currentStart);
+              const nextIdx = (currentIdx + 1) % scenes.length;
+              ytSceneRef.current = scenes[nextIdx];
+              event.target.seekTo(scenes[nextIdx].start, true);
               event.target.playVideo();
             }
             if (event.data === 1 && !ytPlayerRef.current.isMuted()) setIsMusicPlaying(true);
@@ -909,7 +967,8 @@ export default function App() {
   const [pendingModule, setPendingModule] = useState(null);
   const [failedPinAttempts, setFailedPinAttempts] = useState(0);
 
-  const handleLogin = () => {
+  const handleLogin = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     const trimmedUsername = usernameInput.trim();
     if (!trimmedUsername) {
       setLoginError('Vui lòng nhập tên tài khoản.');
@@ -917,29 +976,40 @@ export default function App() {
       return;
     }
     
-    // Only allow admin and admin1
-    if (trimmedUsername !== 'admin' && trimmedUsername !== 'admin1') {
+    if (trimmedUsername !== 'admin' && trimmedUsername !== 'admin1' && trimmedUsername !== 'guest') {
       setLoginError('Tài khoản không tồn tại trên hệ thống.');
       setLoginSuccessMsg('');
       return;
     }
     
-    if (passwordInput === '123') {
-      localStorage.setItem('is_logged_in', 'true');
-      localStorage.setItem('current_user', trimmedUsername);
-      setLoginSuccessMsg('Đăng nhập thành công! Đang tải...');
+    if (passwordInput === '123' || trimmedUsername === 'guest') {
+      setLoginSuccessMsg('Xác thực thành công! Đang kết nối nơ-ron...');
       setLoginError('');
       playGentleClickSound();
-      
-      setTimeout(() => {
-        setCurrentUser(trimmedUsername);
-        setIsLoggedIn(true);
-        setLoginSuccessMsg('');
-      }, 800);
+      setIsSucking(true);
     } else {
       setLoginError('Mật khẩu không chính xác.');
       setLoginSuccessMsg('');
     }
+  };
+
+  const handleQuickLogin = () => {
+    setUsernameInput('guest');
+    setPasswordInput('123');
+    setLoginSuccessMsg('Xác thực nhanh thành công! Đang kết nối...');
+    setLoginError('');
+    playGentleClickSound();
+    setIsSucking(true);
+  };
+
+  const onLoginSuccess = (username) => {
+    localStorage.setItem('is_logged_in', 'true');
+    localStorage.setItem('current_user', username);
+    setCurrentUser(username);
+    setIsLoggedIn(true);
+    setIsSucking(false);
+    setLoginSuccessMsg('');
+    setHasLoggedOut(false);
   };
 
   const handleLogout = () => {
@@ -955,7 +1025,9 @@ export default function App() {
     setSelectedModule(null);
     setPinInput('');
     setPinError('');
+    setHasLoggedOut(true);
     setPendingModule(null);
+    setIsSucking(false);
   };
 
   const handleModuleClick = (moduleNum) => {
@@ -1017,13 +1089,192 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const worlds = useMemo(() => {
+    const countDeutschLearned = allCards.filter(c => c.category === 'General' && c.isLearned).length;
+    const countDeutschTotal = allCards.filter(c => c.category === 'General').length;
+    const countMedicalLearned = allCards.filter(c => c.category !== 'General' && c.isLearned).length;
+    const countMedicalTotal = allCards.filter(c => c.category !== 'General').length;
+
+    const isLocalhost = typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || 
+       window.location.hostname === '127.0.0.1' || 
+       window.location.hostname.startsWith('192.168.') || 
+       window.location.hostname.startsWith('10.') || 
+       window.location.hostname.startsWith('172.'));
+    const showDuyet = currentUser === 'admin' && isLocalhost;
+
+    const list = [
+      {
+        id: "medical-02",
+        title: "Klinische Medizin M2",
+        subtitle: "Học phần ca lâm sàng Meditricks M2 chuyên sâu theo từng chuyên khoa.",
+        tag: "Học phần I",
+        coords: "20 Chuyên khoa // Meditricks",
+        coverImage: "https://images.unsplash.com/photo-1473951574080-01fe45ec8643?auto=format&fit=crop&w=1200&q=80",
+        detailImage: "https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=800&q=80",
+        bgHex: "#12081c",
+        accentColor: "from-fuchsia-500 to-indigo-600",
+        stats: [
+          { label: "Tiến độ", value: `${countMedicalLearned} / ${countMedicalTotal}` },
+          { label: "Số thẻ", value: `${countMedicalTotal}` },
+          { label: "Chuyên khoa", value: "20+" }
+        ],
+        overview: "Học phần I cung cấp hệ thống thẻ học ca lâm sàng chuyên sâu theo định dạng Meditricks M2, bao gồm các chuyên khoa mũi nhọn như Nội khoa (Innere Medizin), Thần kinh (Neurologie), Ngoại khoa (Chirurgie), v.v. Tối ưu cho kỳ thi chuyển đổi y khoa Đức.",
+        explorationSteps: [
+          { title: "Nội khoa (Innere Medizin)", description: "Các bệnh lý tim mạch, hô hấp, tiêu hóa và phác đồ điều trị.", time: "Nội khoa" },
+          { title: "Ngoại khoa & Cấp cứu", description: "Xử trí ngoại khoa, orthopädie và cấp cứu hồi sức tích cực.", time: "Ngoại khoa" },
+          { title: "Thần kinh & Tâm thần", description: "Các ca tai biến thần kinh, động kinh, rối loạn tâm thần lâm sàng.", time: "Chuyên biệt" }
+        ],
+        moduleId: 2
+      },
+      {
+        id: "deutsch-01",
+        title: "Allgemeines Deutsch",
+        subtitle: "Học phần ôn tập Tiếng Đức tổng quát và giao tiếp Y khoa cơ bản.",
+        tag: "Học phần II",
+        coords: "500 Từ vựng // Tổng quát",
+        coverImage: "https://images.unsplash.com/photo-1467269204594-9661b134dd2b?auto=format&fit=crop&w=1200&q=80",
+        detailImage: "https://images.unsplash.com/photo-1483168527879-c66136b56105?auto=format&fit=crop&w=800&q=80",
+        bgHex: "#0c151c",
+        accentColor: "from-cyan-400 to-sky-600",
+        stats: [
+          { label: "Tiến độ", value: `${countDeutschLearned} / ${countDeutschTotal}` },
+          { label: "Số thẻ", value: `${countDeutschTotal}` },
+          { label: "Cấp độ", value: "A2 - B2" }
+        ],
+        overview: "Học phần II tập trung xây dựng nền tảng từ vựng tiếng Đức tổng quát cùng với các quán ngữ, động từ ghép và danh từ chuyên khoa cơ bản. Giúp học viên sẵn sàng giao tiếp trong môi trường y tế Đức và vượt qua các kỳ thi ngôn ngữ chuẩn đầu ra.",
+        explorationSteps: [
+          { title: "Nền tảng DaF", description: "Từ vựng cơ bản thông dụng hàng ngày trong đời sống tại Đức.", time: "Cơ bản" },
+          { title: "Ngữ cảnh Bệnh viện", description: "Các thuật ngữ miêu tả triệu chứng, giao tiếp cơ bản giữa đồng nghiệp.", time: "Giao tiếp" },
+          { title: "Viết bệnh án cơ bản", description: "Luyện cách ghép từ, cấu trúc câu tiếng Đức chuẩn y khoa.", time: "Ứng dụng" }
+        ],
+        moduleId: 1
+      }
+    ];
+
+    if (showDuyet) {
+      list.push({
+        id: "duyet-03",
+        title: "Lõi Phán Quyết Singularity (Admin)",
+        subtitle: "Quyền lực tối cao kiểm soát, phê duyệt và tái cấu trúc toàn bộ vũ trụ tri thức.",
+        tag: "TỐI CAO",
+        coords: "Vùng Huỷ Diệt // Admin Core",
+        coverImage: "https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&w=1200&q=80",
+        detailImage: "https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=800&q=80",
+        bgHex: "#27050d",
+        accentColor: "from-red-650 to-rose-950",
+        stats: [
+          { label: "Thẩm quyền", value: "TỐI CAO" },
+          { label: "Quyền hạn", value: "TOÀN NĂNG" },
+          { label: "Trạng thái", value: "HỦY DIỆT" }
+        ],
+        overview: "Cơ quan phán quyết dữ liệu tối cao, nắm giữ quyền sinh sát đối với mọi thẻ học. Mọi hành động phê duyệt hoặc đào thải tại đây đều trực tiếp định hình nên hệ thống tri thức của bạn. Hãy cân nhắc trước sức mạnh của lõi lượng tử.",
+        explorationSteps: [
+          { title: "Phê duyệt tối cao", description: "Quyết định đưa thẻ học vào vũ trụ tri thức chính thức.", time: "Phán quyết" },
+          { title: "Tái cấu trúc tế bào", description: "Biến đổi nội dung, căn chỉnh dịch nghĩa các ca lâm sàng.", time: "Cải tạo" },
+          { title: "Hủy diệt vĩnh viễn", description: "Đào thải các thẻ kém chất lượng khỏi hàng đợi.", time: "Đào thải" }
+        ],
+        moduleId: 'duyet'
+      });
+    }
+
+    return list;
+  }, [allCards, currentUser]);
+
+  const handleScroll = () => {
+    if (!scrollContainerRef.current || isScrollingRef.current) return;
+    const container = scrollContainerRef.current;
+    const containerTop = container.getBoundingClientRect().top;
+    const children = container.children;
+    if (!children || children.length === 0) return;
+
+    let minDiff = Infinity;
+    let closestIndex = 0;
+
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      const childTop = child.getBoundingClientRect().top;
+      const diff = Math.abs(childTop - containerTop);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIndex = i;
+      }
+    }
+
+    if (closestIndex !== activeWorldIndex) {
+      setActiveWorldIndex(closestIndex);
+    }
+  };
+
+  const scrollToItem = (idx) => {
+    if (!scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const children = container.children;
+    if (children && children[idx]) {
+      const targetElement = children[idx];
+      const targetTop = targetElement.getBoundingClientRect().top;
+      const containerTop = container.getBoundingClientRect().top;
+      const targetScrollTop = (targetTop - containerTop) + container.scrollTop;
+      
+      isScrollingRef.current = true;
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      
+      container.scrollTo({
+        top: targetScrollTop,
+        behavior: "smooth"
+      });
+      setActiveWorldIndex(idx);
+
+      scrollTimeoutRef.current = setTimeout(() => {
+        isScrollingRef.current = false;
+      }, 750);
+    }
+  };
+
+  const getActiveBg = () => {
+    if (!isLoggedIn) return "#070709";
+    if (worlds[activeWorldIndex]) {
+      return worlds[activeWorldIndex].bgHex;
+    }
+    return "#0c0a09";
+  };
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const handleKeyDown = (e) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (
+        activeEl.tagName === "INPUT" || 
+        activeEl.tagName === "TEXTAREA" || 
+        activeEl.isContentEditable
+      )) {
+        return;
+      }
+
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const nextIdx = (activeWorldIndex + 1) % worlds.length;
+        scrollToItem(nextIdx);
+      } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        const prevIdx = (activeWorldIndex - 1 + worlds.length) % worlds.length;
+        scrollToItem(prevIdx);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isLoggedIn, activeWorldIndex, worlds]);
+
   // Wörten/Schlusswörten settings state
   const [studyCount, setStudyCount] = useState(10);
   const [studyStateFilter, setStudyStateFilter] = useState('unlearned'); // 'all', 'learned', 'unlearned'
   const [studyWordClassFilter, setStudyWordClassFilter] = useState('all'); // 'all', 'noun', 'verb', 'adjective', 'adverb', 'preposition'
   const [studyWordClasses, setStudyWordClasses] = useState([]);
   const [studySpecialties, setStudySpecialties] = useState([]);
-  
+  const [studyLessons, setStudyLessons] = useState([]);
+  const [lessonSearchQuery, setLessonSearchQuery] = useState('');
   // Flashcard active session state (Inline player)
   const [activeSessionCards, setActiveSessionCards] = useState(null);
 
@@ -1047,6 +1298,52 @@ export default function App() {
   const [newLessonInputVal, setNewLessonInputVal] = useState('');
   const [newLessonSpecialty, setNewLessonSpecialty] = useState('Innere Medizin');
   const [isAdminReviewMode, setIsAdminReviewMode] = useState(false);
+
+  // Count cards per clinical lesson/disease
+  const lessonCardCounts = useMemo(() => {
+    const counts = {};
+    allCards.forEach(card => {
+      if (card.category === 'General') return;
+      const diseaseName = getCardDiseaseName(card);
+      counts[diseaseName] = (counts[diseaseName] || 0) + 1;
+    });
+    return counts;
+  }, [allCards]);
+
+  // Compute clinical lessons/diseases matching selected specialties
+  const availableLessons = useMemo(() => {
+    if (selectedModule !== 2) return [];
+    
+    // Get all unique diseases from cards, meditricksM2Order, and customLessons
+    const allDiseases = Array.from(new Set([
+      ...meditricksM2Order,
+      ...(customLessons || []),
+      ...allCards.filter(c => c.category !== 'General').map(c => getCardDiseaseName(c))
+    ]));
+
+    // Map disease -> category
+    const diseaseSpecialtyMap = {};
+    allDiseases.forEach(d => {
+      // Find a card for this disease to get its category
+      const card = allCards.find(c => c.category !== 'General' && getCardDiseaseName(c) === d);
+      diseaseSpecialtyMap[d] = manualSpecialties[d] || (card ? card.category : 'Innere Medizin');
+    });
+    
+    // Filter by selected specialties if any
+    const filteredDiseases = studySpecialties.length > 0
+      ? allDiseases.filter(d => studySpecialties.includes(diseaseSpecialtyMap[d]))
+      : allDiseases;
+
+    // Sort according to meditricksM2Order or alphabetically
+    return filteredDiseases.sort((a, b) => {
+      const idxA = meditricksM2Order.indexOf(a);
+      const idxB = meditricksM2Order.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [allCards, selectedModule, studySpecialties, manualSpecialties, customLessons]);
   
   // Bibliothek search and filter states
   const [libSearchQuery, setLibSearchQuery] = useState('');
@@ -1548,6 +1845,8 @@ export default function App() {
     setLibWordClassFilter('all');
     setLibSearchQuery('');
     setStudySpecialties([]);
+    setStudyLessons([]);
+    setLessonSearchQuery('');
     setStudyWordClasses([]);
 
     if (selectedModule && currentUser) {
@@ -1615,6 +1914,12 @@ export default function App() {
           const diseaseName = getCardDiseaseName(card);
           const chosenCategory = manualSpecialties[diseaseName] || card.category;
           return studySpecialties.includes(chosenCategory);
+        });
+      }
+      if (studyLessons.length > 0) {
+        pool = pool.filter(card => {
+          const diseaseName = getCardDiseaseName(card);
+          return studyLessons.includes(diseaseName);
         });
       }
     }
@@ -1850,20 +2155,90 @@ export default function App() {
 
   if (isLoggedIn && loading && allCards.length === 0) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '1rem', background: '#0a0b10' }}>
-        <div style={{ border: '4px solid rgba(255, 255, 255, 0.1)', borderTop: '4px solid var(--accent-primary)', borderRadius: '50%', width: '50px', height: '50px', animation: 'spin 1s linear infinite' }} />
-        <p style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-body)' }}>Đang tải thư viện từ vựng...</p>
-        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#020204] text-white relative overflow-hidden select-none">
+        <style>{`
+          @keyframes spin-slow { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          @keyframes spin-reverse { 0% { transform: rotate(360deg); } 100% { transform: rotate(0deg); } }
+          @keyframes pulse-slow { 0%, 100% { opacity: 0.6; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1.05); } }
+        `}</style>
+        
+        {/* Deep space glow */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.12)_0%,transparent_70%)] blur-[80px] pointer-events-none" />
+        
+        {/* Twinkling stars style */}
+        <div className="absolute inset-0 bg-[radial-gradient(#ffffff08_1px,transparent_1px)] [background-size:20px_20px] opacity-60 pointer-events-none" />
+
+        {/* Orbiting Ring Loader */}
+        <div className="relative w-36 h-36 flex items-center justify-center mb-8">
+          {/* Outer accretion rings */}
+          <div className="absolute inset-0 rounded-full border-t border-r border-emerald-500/40" style={{ animation: 'spin-slow 3s linear infinite' }} />
+          <div className="absolute inset-2 rounded-full border-b border-l border-cyan-500/30" style={{ animation: 'spin-reverse 2s linear infinite' }} />
+          <div className="absolute inset-4 rounded-full border-t border-dashed border-emerald-400/20" style={{ animation: 'spin-slow 6s linear infinite' }} />
+          
+          {/* Middle event horizon glow */}
+          <div className="absolute w-16 h-16 rounded-full bg-black border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.35)] flex items-center justify-center" style={{ animation: 'pulse-slow 2s ease-in-out infinite' }}>
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+          </div>
+        </div>
+
+        {/* Text indicators */}
+        <div className="relative z-10 text-center space-y-2 px-6">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 mb-1">
+            <span className="text-[9px] uppercase tracking-[0.2em] font-semibold text-emerald-400">SINGULARITY LINK</span>
+          </div>
+          <h2 className="text-sm font-bold tracking-[0.15em] text-stone-300 font-mono uppercase">
+            CONNECTING TO GARGANTUA CORE
+          </h2>
+          <p className="text-xs text-stone-500 font-light tracking-wide">
+            Đang tải thư viện từ vựng từ hệ thống dữ liệu...
+          </p>
+        </div>
       </div>
     );
   }
 
   if (isLoggedIn && error) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '1rem', color: 'white', background: '#0a0b10' }}>
-        <h2>Không thể kết nối Backend</h2>
-        <p style={{ color: 'red' }}>{error}</p>
-        <button onClick={fetchCards} className="btn-primary" style={{ maxWidth: '200px' }}>Thử lại</button>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#020204] text-white relative overflow-hidden select-none">
+        <style>{`
+          @keyframes pulse-slow { 0%, 100% { opacity: 0.6; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1.05); } }
+          @keyframes spin-slow { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        `}</style>
+        
+        {/* Distressed deep space glow */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.08)_0%,transparent_70%)] blur-[80px] pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(#ffffff05_1px,transparent_1px)] [background-size:20px_20px] opacity-60 pointer-events-none" />
+
+        {/* Broken link graphic */}
+        <div className="relative w-36 h-36 flex items-center justify-center mb-8">
+          {/* Distressed ring */}
+          <div className="absolute inset-0 rounded-full border border-red-500/20 border-dashed" style={{ animation: 'spin-slow 8s linear infinite' }} />
+          {/* Core Alert */}
+          <div className="absolute w-16 h-16 rounded-full bg-black border border-red-500/40 shadow-[0_0_30px_rgba(239,68,68,0.25)] flex items-center justify-center" style={{ animation: 'pulse-slow 2.5s ease-in-out infinite' }}>
+            <AlertCircle className="w-6 h-6 text-red-500" />
+          </div>
+        </div>
+
+        {/* Error Details */}
+        <div className="relative z-10 text-center space-y-3 px-6 max-w-md">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 mb-1">
+            <span className="text-[9px] uppercase tracking-[0.2em] font-semibold text-red-400">LINK FAILED</span>
+          </div>
+          <h2 className="text-base font-bold tracking-[0.12em] text-red-400 font-mono uppercase">
+            Không thể kết nối Backend
+          </h2>
+          <p className="text-xs text-stone-400 font-light leading-relaxed">
+            {error || "Mất kết nối với cơ sở dữ liệu học tập của hố đen Gargantua."}
+          </p>
+          <div className="pt-4">
+            <button 
+              onClick={fetchCards} 
+              className="px-6 py-2 rounded-xl bg-white text-stone-950 font-semibold text-xs hover:bg-stone-100 hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] active:scale-[0.98] transition-all duration-200 cursor-pointer border border-stone-200"
+            >
+              Tải Lại Cổng Kết Nối
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1871,400 +2246,440 @@ export default function App() {
   // 0. PREMIUM LOGIN SCREEN
   if (!isLoggedIn) {
     return (
-      <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center' }}>
-        {/* YT player div lives in document.body (created by useEffect) — not in React tree */}
-        {/* Music toggle button - desktop only */}
+      <>
+        <LoginScreen
+          usernameInput={usernameInput}
+          setUsernameInput={setUsernameInput}
+          passwordInput={passwordInput}
+          setPasswordInput={setPasswordInput}
+          loginError={loginError}
+          loginSuccessMsg={loginSuccessMsg}
+          handleLogin={handleLogin}
+          handleQuickLogin={handleQuickLogin}
+          isLoading={false}
+          hasLoggedOut={hasLoggedOut}
+          isSucking={isSucking}
+          setIsSucking={setIsSucking}
+          onLoginSuccess={onLoginSuccess}
+          startMusicOnInputFocus={startMusicOnInputFocus}
+        />
         {isDesktop && (
-          <button
-            onClick={toggleMusic}
-            title={isMusicPlaying ? 'Tắt nhạc' : 'Bật nhạc'}
-            style={{
-              position: 'fixed',
-              bottom: '2rem',
-              right: '2rem',
-              zIndex: 9999,
-              width: '52px',
-              height: '52px',
-              borderRadius: '50%',
-              border: '1.5px solid rgba(255,255,255,0.25)',
-              background: isMusicPlaying
-                ? 'linear-gradient(135deg, rgba(99,102,241,0.85), rgba(168,85,247,0.85))'
-                : 'rgba(30,30,50,0.75)',
-              backdropFilter: 'blur(12px)',
-              color: 'white',
-              fontSize: '1.4rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: isMusicPlaying
-                ? '0 0 18px rgba(168,85,247,0.5), 0 4px 15px rgba(0,0,0,0.3)'
-                : '0 4px 15px rgba(0,0,0,0.3)',
-              transition: 'all 0.3s ease',
-            }}
-          >
-            {isMusicPlaying ? '🎵' : '🔇'}
-          </button>
+          <MusicToggleButton isMusicPlaying={isMusicPlaying} toggleMusic={toggleMusic} />
         )}
-
-        {/* === BACKGROUND ANIMATIONS === */}
-        <div className="login-aurora" />
-        <div className="login-particles">
-          {[...Array(12)].map((_, i) => <div key={i} className="login-particle" />)}
-        </div>
-        <div className="login-led-left" />
-        <div className="login-led-right" />
-        {/* Neon wave canvas behind card */}
-        <NeonWaveCanvas />
-        {/* Wave SVG bottom */}
-        <div className="login-waves">
-          <svg className="login-wave-1" viewBox="0 0 1440 130" preserveAspectRatio="none">
-            <path d="M0,64 C240,110 480,20 720,64 C960,110 1200,20 1440,64 L1440,130 L0,130 Z" fill="rgba(99,102,241,0.18)" />
-            <path d="M1440,64 C1200,110 960,20 720,64 C480,110 240,20 0,64 L0,130 L1440,130 Z" fill="rgba(99,102,241,0.18)" />
-          </svg>
-          <svg className="login-wave-2" viewBox="0 0 1440 130" preserveAspectRatio="none">
-            <path d="M0,80 C200,30 400,110 600,70 C800,30 1000,100 1200,60 C1300,40 1380,80 1440,70 L1440,130 L0,130 Z" fill="rgba(168,85,247,0.13)" />
-            <path d="M1440,80 C1240,30 1040,110 840,70 C640,30 440,100 240,60 C140,40 60,80 0,70 L0,130 L1440,130 Z" fill="rgba(168,85,247,0.13)" />
-          </svg>
-          <svg className="login-wave-3" viewBox="0 0 1440 130" preserveAspectRatio="none">
-            <path d="M0,50 C360,130 720,0 1080,80 C1260,110 1380,40 1440,60 L1440,130 L0,130 Z" fill="rgba(59,130,246,0.1)" />
-            <path d="M1440,50 C1080,130 720,0 360,80 C180,110 60,40 0,60 L0,130 L1440,130 Z" fill="rgba(59,130,246,0.1)" />
-          </svg>
-        </div>
-
-        <div className="login-card-glow" style={{
-          width: '100%',
-          maxWidth: '400px',
-          background: 'var(--glass-bg)',
-          border: '1px solid var(--glass-border)',
-          borderRadius: '24px',
-          padding: '3rem 2.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.8rem',
-          textAlign: 'center',
-          position: 'relative',
-          zIndex: 2,
-          animation: 'fadeIn 0.3s ease-out',
-        }}>
-          <div>
-            <svg width="72" height="48" viewBox="0 0 3 2" style={{ marginBottom: '1.2rem', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 0 15px rgba(0,0,0,0.5)', display: 'inline-block' }}>
-              <rect y="0" width="3" height="0.667" fill="#000000"/>
-              <rect y="0.667" width="3" height="0.667" fill="#DD0000"/>
-              <rect y="1.333" width="3" height="0.667" fill="#FFCC00"/>
-            </svg>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: '800', color: 'white' }}>Đăng nhập</h2>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', textAlign: 'left' }}>
-            <div className="form-group">
-              <label className="form-label" style={{ fontSize: '0.75rem' }}>Tài khoản</label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="Nhập tên tài khoản..." 
-                value={usernameInput}
-                onChange={(e) => setUsernameInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                onFocus={startMusicOnInputFocus}
-                onClick={startMusicOnInputFocus}
-                style={{ padding: '0.8rem 1rem', borderRadius: '12px' }}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label" style={{ fontSize: '0.75rem' }}>Mật khẩu</label>
-              <input 
-                type="password" 
-                className="form-input" 
-                placeholder="Nhập mật khẩu..." 
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                style={{ padding: '0.8rem 1rem', borderRadius: '12px' }}
-              />
-            </div>
-          </div>
-
-          {loginError && (
-            <p style={{ color: '#fca5a5', fontSize: '0.82rem', fontWeight: '600', marginTop: '-0.5rem', background: 'rgba(239, 68, 68, 0.15)', padding: '0.6rem', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>⚠️ {loginError}</p>
-          )}
-
-          {loginSuccessMsg && (
-            <p style={{ color: '#86efac', fontSize: '0.82rem', fontWeight: '600', marginTop: '-0.5rem', background: 'rgba(16, 185, 129, 0.15)', padding: '0.6rem', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>✓ {loginSuccessMsg}</p>
-          )}
-
-          <button 
-            className="btn-primary" 
-            onClick={handleLogin}
-            style={{ padding: '0.9rem', fontSize: '1rem', borderRadius: '12px' }}
-          >
-            Đăng nhập →
-          </button>
-        </div>
-      </div>
+      </>
     );
   }
 
-  // MODULE PICKER SCREEN (Home Dashboard)
+  // MODULE PICKER SCREEN (Home Dashboard with storyscrolling selection layout)
   if (selectedModule === null) {
     return (
-      <div className="app-container" style={{ justifyContent: 'center' }}>
+      <div 
+        className="relative w-full h-screen overflow-hidden transition-colors duration-1000 ease-out flex flex-col"
+        style={{ backgroundColor: getActiveBg() }}
+      >
+              {/* Deep space stars & dynamic black hole overlay background */}
+              <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+                <div className="absolute inset-0 opacity-[0.25] bg-[radial-gradient(#ffffff0c_1.5px,transparent_1.5px)] [background-size:28px_28px]" />
+                
+                <motion.div
+                  animate={{
+                    scale: [1, 1.05, 1],
+                    opacity: worlds[activeWorldIndex]?.id === "duyet-03" ? 0.35 : 0.1,
+                  }}
+                  transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+                  className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,182,212,0.15),transparent_65%)]"
+                />
 
-        {/* YT player div lives in document.body (created by useEffect) — not in React tree */}
+                <AnimatePresence>
+                  {worlds[activeWorldIndex]?.id === "duyet-03" && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 1.1 }}
+                      animate={{ opacity: 0.18, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      transition={{ duration: 1.5 }}
+                      className="absolute inset-0 flex items-center justify-center saturate-[1.2] brightness-50 mix-blend-screen"
+                    >
+                      <img
+                        src="https://upload.wikimedia.org/wikipedia/commons/4/4f/Black_hole_Gargantua_Interstellar.png"
+                        alt="Background Horizon Flare"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover opacity-80"
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
-        {/* Music toggle button — bottom-right, same as login */}
-        {isDesktop && (
-          <button
-            onClick={toggleMusic}
-            title={isMusicPlaying ? 'Tắt nhạc' : 'Bật nhạc'}
-            style={{
-              position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 9999,
-              width: '52px', height: '52px', borderRadius: '50%',
-              border: '1.5px solid rgba(255,255,255,0.25)',
-              background: isMusicPlaying
-                ? 'linear-gradient(135deg, rgba(99,102,241,0.85), rgba(168,85,247,0.85))'
-                : 'rgba(30,30,50,0.75)',
-              backdropFilter: 'blur(12px)', color: 'white', fontSize: '1.4rem',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: isMusicPlaying
-                ? '0 0 18px rgba(168,85,247,0.5), 0 4px 15px rgba(0,0,0,0.3)'
-                : '0 4px 15px rgba(0,0,0,0.3)',
-              transition: 'all 0.3s ease',
-            }}
-          >
-            {isMusicPlaying ? '🎵' : '🔇'}
-          </button>
-        )}
+              {/* TOP NAVIGATION HEADBOARD */}
+              <header className="absolute top-0 inset-x-0 z-30 h-20 px-6 md:px-12 flex items-center justify-between pointer-events-auto bg-gradient-to-b from-stone-950/40 via-stone-950/10 to-transparent">
+                {/* Left header spacer to preserve center alignment */}
+                <div className="w-28 sm:block hidden pointer-events-none" />
 
-        {/* === BACKGROUND ANIMATIONS === */}
-        <div className="login-aurora" />
-        <div className="login-particles">
-          {[...Array(12)].map((_, i) => <div key={i} className="login-particle" />)}
-        </div>
-        <div className="login-led-left" />
-        <div className="login-led-right" />
-        <NeonWaveCanvas />
-        <div className="login-waves">
-          <svg className="login-wave-1" viewBox="0 0 1440 130" preserveAspectRatio="none">
-            <path d="M0,64 C240,110 480,20 720,64 C960,110 1200,20 1440,64 L1440,130 L0,130 Z" fill="rgba(99,102,241,0.18)" />
-            <path d="M1440,64 C1200,110 960,20 720,64 C480,110 240,20 0,64 L0,130 L1440,130 Z" fill="rgba(99,102,241,0.18)" />
-          </svg>
-          <svg className="login-wave-2" viewBox="0 0 1440 130" preserveAspectRatio="none">
-            <path d="M0,80 C200,30 400,110 600,70 C800,30 1000,100 1200,60 C1300,40 1380,80 1440,70 L1440,130 L0,130 Z" fill="rgba(168,85,247,0.13)" />
-            <path d="M1440,80 C1240,30 1040,110 840,70 C640,30 440,100 240,60 C140,40 60,80 0,70 L0,130 L1440,130 Z" fill="rgba(168,85,247,0.13)" />
-          </svg>
-          <svg className="login-wave-3" viewBox="0 0 1440 130" preserveAspectRatio="none">
-            <path d="M0,50 C360,130 720,0 1080,80 C1260,110 1380,40 1440,60 L1440,130 L0,130 Z" fill="rgba(59,130,246,0.1)" />
-            <path d="M1440,50 C1080,130 720,0 360,80 C180,110 60,40 0,60 L0,130 L1440,130 Z" fill="rgba(59,130,246,0.1)" />
-          </svg>
-        </div>
+                {/* CENTER COMPACT LOCATION SELECTOR */}
+                <div className="relative flex items-center justify-center pointer-events-auto">
+                  <div className="flex items-center gap-1.5 bg-stone-950/55 backdrop-blur-xl border border-stone-800/60 p-1 rounded-full px-2 shadow-[0_12px_24px_rgba(0,0,0,0.5),inset_0_1px_2px_rgba(255,255,255,0.06)]">
+                    <button
+                      onClick={() => {
+                        const prevIdx = (activeWorldIndex - 1 + worlds.length) % worlds.length;
+                        scrollToItem(prevIdx);
+                      }}
+                      className="w-7 h-7 rounded-full bg-stone-900/60 hover:bg-stone-800 text-stone-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer border border-stone-800/20 text-xs"
+                      title="Địa điểm trước"
+                    >
+                      ←
+                    </button>
 
-        {/* User indicator — top RIGHT */}
-        <div className="home-user-indicator" style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', padding: '0.6rem 1.2rem', borderRadius: '16px', backdropFilter: 'blur(10px)', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', position: 'fixed', top: '1.2rem', right: '1.5rem', zIndex: 10 }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tài khoản</div>
-            <div style={{ fontSize: '0.9rem', fontWeight: '700', color: 'white' }}>👤 {currentUser}</div>
-          </div>
-          <button 
-            onClick={handleLogout}
-            style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', padding: '0.4rem 0.8rem', borderRadius: '8px', fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s' }}
-          >
-            Đăng xuất
-          </button>
-        </div>
+                    <button
+                      onClick={() => setIsLocationDropdownOpen(!isLocationDropdownOpen)}
+                      className="flex items-center gap-2 px-3 py-1 rounded-full hover:bg-stone-900/50 transition-all cursor-pointer group"
+                    >
+                      <div className="relative flex items-center justify-center">
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981] animate-pulse" />
+                        <span className="absolute inline-flex h-1.5 w-1.5 rounded-full bg-emerald-450 opacity-75 animate-ping" />
+                      </div>
+                      
+                      <span className="text-[11px] font-medium text-stone-200 select-none">
+                        {worlds[activeWorldIndex]?.title}
+                      </span>
+                      <ChevronDown className={`w-3.5 h-3.5 text-stone-400 group-hover:text-stone-200 transition-transform duration-350 ${isLocationDropdownOpen ? "rotate-180" : ""}`} />
+                    </button>
 
-        <div className="module-picker-overlay" style={{ position: 'relative', zIndex: 2 }}>
-          <svg width="72" height="48" viewBox="0 0 3 2" style={{ marginBottom: '1.5rem', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 0 20px rgba(0,0,0,0.5)', cursor: 'pointer', transition: 'transform 0.2s', flexShrink: 0 }} onClick={playGentleClickSound} className="logo-german-flag-home">
-            <rect y="0" width="3" height="0.667" fill="#000000"/>
-            <rect y="0.667" width="3" height="0.667" fill="#DD0000"/>
-            <rect y="1.333" width="3" height="0.667" fill="#FFCC00"/>
-          </svg>
-          <p className="module-picker-subtitle" style={{ marginTop: '0.5rem' }}>
-            Chào mừng <span style={{ color: 'var(--accent-active-color)', fontWeight: '700' }}>{currentUser}</span> đến với TÔI BỊ NGU. Hãy chọn một học phần chuyên biệt dưới đây để bắt đầu ôn luyện.
-          </p>
-          {/* ── Điều kiện hiện ô Duyệt: chỉ admin + localhost ── */}
-          {(() => {
-            const isLocalhost = typeof window !== 'undefined' &&
-              (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-            const showDuyet = currentUser === 'admin' && isLocalhost;
-            return (
-              <div className="module-grid" style={{
-                maxWidth: showDuyet ? '900px' : '600px',
-                gridTemplateColumns: showDuyet ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)'
-              }}>
+                    <button
+                      onClick={() => {
+                        const nextIdx = (activeWorldIndex + 1) % worlds.length;
+                        scrollToItem(nextIdx);
+                      }}
+                      className="w-7 h-7 rounded-full bg-stone-900/60 hover:bg-stone-800 text-stone-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer border border-stone-800/20 text-xs"
+                      title="Địa điểm tiếp theo"
+                    >
+                      →
+                    </button>
+                  </div>
 
-                {/* Học phần 1: Tiếng Đức */}
-                <div className="module-card module-card-deutsch" onClick={() => handleModuleClick(1)} style={{ padding: '3.5rem 2rem' }}>
-                  <span className="module-num" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: '5rem', marginBottom: '0.5rem' }}>
-                    <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 4px 15px rgba(2, 132, 199, 0.35))', borderRadius: '16px' }}>
-                      <rect width="80" height="80" fill="#0083c2" />
-                      <polygon points="0,0 80,45 0,60" fill="#0284c7" opacity="0.8" />
-                      <polygon points="80,0 80,80 35,45" fill="#0369a1" opacity="0.9" />
-                      <polygon points="0,80 80,80 40,30" fill="#075985" opacity="0.95" />
-                      <text x="14" y="32" fill="#ffffff" fontFamily="var(--font-body)" fontSize="20" fontWeight="400" letterSpacing="-0.5">Test</text>
-                      <text x="14" y="60" fill="#ffffff" fontFamily="var(--font-body)" fontSize="25" fontWeight="500" letterSpacing="-0.5">DaF</text>
-                    </svg>
+                  {/* Dropdown Menu */}
+                  <AnimatePresence>
+                    {isLocationDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40 pointer-events-auto" 
+                          onClick={() => setIsLocationDropdownOpen(false)} 
+                        />
+                        
+                        <motion.div
+                          initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                          className="absolute top-12 w-[310px] sm:w-[400px] max-h-[440px] overflow-y-auto no-scrollbar z-50 rounded-2xl border border-stone-800/80 bg-[#06060c]/98 backdrop-blur-3xl p-2.5 shadow-[0_25px_60px_rgba(0,0,0,0.85),inset_0_1px_2px_rgba(255,255,255,0.06)] pointer-events-auto flex flex-col gap-1.5"
+                        >
+                          <div className="px-3 py-1.5 border-b border-stone-900 mb-1 flex items-center justify-between text-stone-500 text-[9px] font-mono tracking-wider uppercase">
+                            <span>Học phần khả dụng</span>
+                            <span>{worlds.length} TỌA ĐỘ</span>
+                          </div>
+
+                          {worlds.map((world, idx) => {
+                            const isActive = idx === activeWorldIndex;
+                            return (
+                              <button
+                                key={world.id}
+                                onClick={() => {
+                                  scrollToItem(idx);
+                                  setIsLocationDropdownOpen(false);
+                                }}
+                                className={`w-full flex items-center justify-between p-2 rounded-xl transition-all text-left group border cursor-pointer ${
+                                  isActive
+                                    ? "bg-stone-900/85 border-emerald-500/40"
+                                    : "bg-transparent border-transparent hover:bg-stone-900/30 hover:border-stone-850"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="w-10 h-10 rounded-lg overflow-hidden relative border border-stone-800 flex-shrink-0 bg-stone-950">
+                                    <img 
+                                      src={world.coverImage} 
+                                      alt={world.title} 
+                                      referrerPolicy="no-referrer"
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                                    />
+                                    {isActive && (
+                                      <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-ping" />
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="flex flex-col min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[9px] font-mono text-emerald-450 font-semibold flex-shrink-0">
+                                        0{idx + 1}
+                                      </span>
+                                      <span className="text-xs font-semibold text-stone-100 group-hover:text-white truncate">
+                                        {world.title}
+                                      </span>
+                                    </div>
+                                    <span className="text-[9px] font-mono text-stone-550 mt-0.5 tracking-tight truncate max-w-[150px] sm:max-w-[210px]">
+                                      {world.coords}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col items-end gap-1 font-mono text-[9px] flex-shrink-0 pl-2">
+                                  <span className="py-0.5 px-1.5 rounded bg-stone-950 text-stone-500 border border-stone-850 uppercase text-[8px]">
+                                    {world.tag}
+                                  </span>
+                                  {isActive && (
+                                    <span className="text-emerald-400 text-[8px] tracking-wide animate-pulse font-bold">ACTIVE</span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* USER PANEL TRIGGER SECTION */}
+                <div className="flex items-center gap-4">
+                  {isDesktop && (
+                    <MusicToggleButton isMusicPlaying={isMusicPlaying} toggleMusic={toggleMusic} inline={true} />
+                  )}
+                  
+                  <div className="flex items-center gap-2 bg-stone-900/40 px-3 py-1.5 rounded-full border border-stone-800/40 text-stone-300">
+                    <span className="w-4 h-4 text-emerald-400 flex items-center justify-center">👤</span>
+                    <span className="text-xs font-mono font-medium max-w-[100px] truncate">
+                      {currentUser}
+                    </span>
+                  </div>
+                  
+                  <button
+                    onClick={handleLogout}
+                    className="w-9 h-9 rounded-full border border-stone-800 bg-stone-950/40 text-stone-400 hover:text-red-400 hover:border-red-900/50 hover:bg-red-950/10 transition-colors flex items-center justify-center cursor-pointer"
+                    title="Đăng xuất khỏi tài khoản"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              </header>
+
+              {/* DYNAMIC SCROLL CONTAINER ROW */}
+              <div className="flex-1 relative flex items-center justify-center z-10 w-full h-full pt-16">
+                {/* LEFT FLOATING PROGRESS VERTICAL INDICATORS TRACKER */}
+                <div className="absolute left-6 md:left-12 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center space-y-6">
+                  <div className="flex flex-col space-y-3 relative">
+                    <div className="absolute left-1/2 -translate-x-1/2 top-2 bottom-2 w-[1px] bg-stone-800" />
+                    
+                    {worlds.map((world, idx) => (
+                      <button
+                        key={world.id}
+                        onClick={() => scrollToItem(idx)}
+                        className="group flex items-center gap-3 py-1 relative z-10 focus:outline-none cursor-pointer"
+                      >
+                        <span className={`text-[9px] font-mono transition-all duration-300 ${
+                          activeWorldIndex === idx ? "text-emerald-400" : "text-stone-600 opacity-0 group-hover:opacity-100"
+                        }`}>
+                          0{idx + 1}
+                        </span>
+                        <div className="relative flex items-center justify-center">
+                          <motion.div
+                            animate={{
+                              scale: activeWorldIndex === idx ? 1.2 : 0.8,
+                              backgroundColor: activeWorldIndex === idx ? "#10b981" : "rgba(120, 113, 108, 0.4)"
+                            }}
+                            className="w-2.5 h-2.5 rounded-full border border-stone-950"
+                          />
+                          {activeWorldIndex === idx && (
+                            <motion.div
+                              layoutId="active-dot-outline"
+                              className="absolute -inset-1.5 rounded-full border border-emerald-400/40"
+                              transition={{ type: "spring", stiffness: 200, damping: 20 }}
+                            />
+                          )}
+                        </div>
+                        <span className={`text-[10px] font-mono tracking-wider hidden md:inline-block transition-colors duration-300 select-none ${
+                          activeWorldIndex === idx ? "text-emerald-400 font-semibold" : "text-stone-500 group-hover:text-stone-300"
+                        }`}>
+                          {world.title}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <span className="hidden md:block transform -rotate-90 mt-8 font-mono text-[9px] text-stone-600 tracking-widest whitespace-nowrap">
+                    SORA SYSTEM ACTIVE
                   </span>
-                  <span className="module-name" style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Học phần 1</span>
-                  <span style={{ fontSize: '1.1rem', fontWeight: '500', color: 'var(--text-secondary)' }}>Deutsch</span>
                 </div>
 
-                {/* Học phần 2: Y Khoa */}
-                <div className="module-card module-card-medical" onClick={() => handleModuleClick(2)} style={{ padding: '3.5rem 2rem' }}>
-                  <span className="module-num" style={{ fontSize: '3.5rem' }}>🩺</span>
-                  <span className="module-name" style={{ fontSize: '1.4rem', marginTop: '0.5rem' }}>Học phần 2</span>
-                  <span style={{ fontSize: '1.1rem', fontWeight: '500', color: 'var(--text-secondary)' }}>M2</span>
-                </div>
-
-                {/* Ô DUYỆT — chỉ admin + localhost */}
-                {showDuyet && (
+                {/* THE CORE VERTICAL VIEWPORT STORYSCROLL CONTAINER */}
+                {worlds.length > 0 ? (
                   <div
-                    className="module-card"
-                    onClick={() => setSelectedModule('duyet')}
+                    ref={scrollContainerRef}
+                    onScroll={handleScroll}
+                    className="story-scroll-container no-scrollbar"
                     style={{
-                      padding: '3.5rem 2rem',
-                      background: 'rgba(239,68,68,0.06)',
-                      border: '1.5px dashed rgba(239,68,68,0.35)',
-                      cursor: 'pointer',
-                      transition: 'all 0.25s',
+                      scrollSnapType: 'y mandatory',
+                      overflowY: 'auto',
+                      height: '100%',
+                      width: '100%',
                       display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      borderRadius: '20px',
-                      position: 'relative',
+                      flexDirection: 'column'
                     }}
                   >
-                    {/* LOCAL-ONLY badge */}
-                    <span style={{
-                      position: 'absolute', top: '0.7rem', right: '0.7rem',
-                      fontSize: '0.6rem', fontWeight: '800', textTransform: 'uppercase',
-                      background: 'rgba(239,68,68,0.2)', color: '#fca5a5',
-                      border: '1px solid rgba(239,68,68,0.3)',
-                      padding: '0.15rem 0.5rem', borderRadius: '6px', letterSpacing: '0.5px'
-                    }}>LOCAL ONLY</span>
-
-                    <span style={{ fontSize: '3.5rem' }}>🛠️</span>
-                    <span className="module-name" style={{ fontSize: '1.4rem', marginTop: '0.5rem', color: '#fca5a5' }}>DUYỆT</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: '500', color: 'rgba(252,165,165,0.6)' }}>Admin tools</span>
+                    {worlds.map((world, index) => (
+                      <WorldCard
+                        key={world.id}
+                        world={world}
+                        index={index}
+                        isActive={activeWorldIndex === index}
+                        onSelect={() => setSelectedWorld(world)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center space-y-3 py-20 text-center">
+                    <span className="w-12 h-12 rounded-full border border-stone-800 flex items-center justify-center text-stone-600">✨</span>
+                    <p className="text-stone-400 text-xs font-light">
+                      Không tìm thấy vùng không gian thám hiểm tương ứng.
+                    </p>
+                    <button
+                      onClick={() => scrollToItem(0)}
+                      className="text-xs text-emerald-400 border border-emerald-500/20 px-3.5 py-1.5 rounded-full hover:bg-emerald-500/10 cursor-pointer"
+                    >
+                      Quay lại đầu trang
+                    </button>
                   </div>
                 )}
 
-              </div>
-            );
-          })()}
-
-        </div>
-
-        {/* --- PREMIUM 2ND-LAYER PIN MODAL FOR ADMIN1+ --- */}
-        {pendingModule !== null && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            backgroundColor: 'rgba(5, 6, 12, 0.85)',
-            backdropFilter: 'blur(12px)',
-            zIndex: 3000,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            animation: 'overlayFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
-          }}>
-            <div style={{
-              background: 'var(--bg-secondary)',
-              border: '1.5px solid var(--glass-border)',
-              borderRadius: '24px',
-              padding: '3rem 2.5rem',
-              textAlign: 'center',
-              maxWidth: '420px',
-              width: '90%',
-              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(99, 102, 241, 0.1)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1.5rem',
-              animation: 'pinModalEntry 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)'
-            }}>
-              <div>
-                <span style={{ fontSize: '2.5rem', filter: 'drop-shadow(0 0 10px rgba(99,102,241,0.4))' }}>🔒</span>
-                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: '800', color: 'white', marginTop: '0.6rem' }}>
-                  Nhập mã PIN
-                </h3>
+                {/* FLOATING HINT */}
+                <div className="absolute bottom-6 right-6 md:right-12 z-20 flex flex-col items-end gap-1.5 pointer-events-none">
+                  <div className="flex items-center gap-2 bg-stone-900/80 backdrop-blur border border-stone-800/80 py-1.5 px-3 rounded-full text-[10px] font-mono text-stone-400">
+                    <span>PHÍM LÊN-XUỐNG ĐỂ DI CHUYỂN</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="form-group" style={{ textAlign: 'center' }}>
-                <input 
-                  type="password" 
-                  maxLength={4}
-                  className="form-input" 
-                  placeholder="••••" 
-                  value={pinInput}
-                  onChange={(e) => {
-                    const cleanedVal = e.target.value.replace(/\D/g, '');
-                    setPinInput(cleanedVal);
-                    if (cleanedVal.length === 4) {
-                      handleVerifyPIN(cleanedVal, true);
-                    }
-                  }}
-                  onKeyDown={(e) => e.key === 'Enter' && handleVerifyPIN()}
-                  style={{ 
-                    padding: '0.8rem', 
-                    borderRadius: '12px', 
-                    textAlign: 'center', 
-                    fontSize: '1.6rem', 
-                    letterSpacing: '0.6rem', 
-                    paddingLeft: '0.6rem',
-                    fontFamily: 'monospace',
-                    background: 'rgba(0,0,0,0.2)'
-                  }}
-                  autoFocus
-                />
-              </div>
+              {/* DYNAMIC EXPANDED STATE (MODAL OVERLAYS) */}
+              <AnimatePresence>
+                {selectedWorld && (
+                  <WorldDetails
+                    world={selectedWorld}
+                    userEmail={currentUser || "guest"}
+                    onClose={() => setSelectedWorld(null)}
+                    onStartModule={() => {
+                      const worldToStart = selectedWorld;
+                      setSelectedWorld(null);
+                      handleModuleClick(worldToStart.moduleId);
+                    }}
+                  />
+                )}
+              </AnimatePresence>
 
-              {pinError && (
-                <p style={{ color: '#fca5a5', fontSize: '0.82rem', fontWeight: '600', marginTop: '-0.5rem', background: 'rgba(239, 68, 68, 0.15)', padding: '0.5rem', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>⚠️ {pinError}</p>
+              {/* PIN MODAL POPUP FOR ADMIN1+ */}
+              {pendingModule !== null && (
+                <div style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  width: '100vw',
+                  height: '100vh',
+                  backgroundColor: 'rgba(5, 6, 12, 0.85)',
+                  backdropFilter: 'blur(12px)',
+                  zIndex: 3000,
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <div style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1.5px solid var(--glass-border)',
+                    borderRadius: '24px',
+                    padding: '3rem 2.5rem',
+                    textAlign: 'center',
+                    maxWidth: '420px',
+                    width: '90%',
+                    boxShadow: '0 25px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(99, 102, 241, 0.1)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1.5rem',
+                  }}>
+                    <div>
+                      <span style={{ fontSize: '2.5rem', filter: 'drop-shadow(0 0 10px rgba(99,102,241,0.4))' }}>🔒</span>
+                      <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: '800', color: 'white', marginTop: '0.6rem' }}>
+                        Nhập mã PIN
+                      </h3>
+                    </div>
+
+                    <div className="form-group" style={{ textAlign: 'center' }}>
+                      <input 
+                        type="password" 
+                        maxLength={4}
+                        className="form-input" 
+                        placeholder="••••" 
+                        value={pinInput}
+                        onChange={(e) => {
+                          const cleanedVal = e.target.value.replace(/\D/g, '');
+                          setPinInput(cleanedVal);
+                          if (cleanedVal.length === 4) {
+                            handleVerifyPIN(cleanedVal, true);
+                          }
+                        }}
+                        onKeyDown={(e) => e.key === 'Enter' && handleVerifyPIN()}
+                        style={{ 
+                          padding: '0.8rem', 
+                          borderRadius: '12px', 
+                          textAlign: 'center', 
+                          fontSize: '1.6rem', 
+                          letterSpacing: '0.6rem', 
+                          paddingLeft: '0.6rem',
+                          fontFamily: 'monospace',
+                          background: 'rgba(0,0,0,0.2)'
+                        }}
+                        autoFocus
+                      />
+                    </div>
+
+                    {pinError && (
+                      <p style={{ color: '#fca5a5', fontSize: '0.82rem', fontWeight: '600', marginTop: '-0.5rem', background: 'rgba(239, 68, 68, 0.15)', padding: '0.5rem', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>⚠️ {pinError}</p>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                      <button 
+                        onClick={() => { setPendingModule(null); setPinInput(''); setPinError(''); }}
+                        style={{
+                          flex: 1,
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          color: 'var(--text-primary)',
+                          border: '1px solid var(--glass-border)',
+                          padding: '0.8rem',
+                          borderRadius: '12px',
+                          fontWeight: '600',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Hủy
+                      </button>
+                      <button 
+                        onClick={handleVerifyPIN}
+                        style={{
+                          flex: 1,
+                          background: 'var(--accent-primary)',
+                          color: 'white',
+                          border: 'none',
+                          padding: '0.8rem',
+                          borderRadius: '12px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)'
+                        }}
+                      >
+                        Xác nhận
+                      </button>
+                    </div>
+                  </div>
+                </div>
               )}
-
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <button 
-                  onClick={() => { setPendingModule(null); setPinInput(''); setPinError(''); }}
-                  style={{
-                    flex: 1,
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    color: 'var(--text-primary)',
-                    border: '1px solid var(--glass-border)',
-                    padding: '0.8rem',
-                    borderRadius: '12px',
-                    fontWeight: '600',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Hủy
-                </button>
-                <button 
-                  onClick={handleVerifyPIN}
-                  style={{
-                    flex: 1,
-                    background: 'var(--accent-primary)',
-                    color: 'white',
-                    border: 'none',
-                    padding: '0.8rem',
-                    borderRadius: '12px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    boxShadow: '0 4px 15px rgba(99, 102, 241, 0.3)'
-                  }}
-                >
-                  Xác nhận
-                </button>
-              </div>
             </div>
-          </div>
-        )}
-      </div>
-    );
-  }
+          );
+        }
 
   // ── DUYỆT PANEL — admin only, localhost only ─────────────────────────
   if (selectedModule === 'duyet') {
@@ -2284,13 +2699,18 @@ export default function App() {
     >
       {/* Header */}
       <header className="app-header">
-        <div className="logo" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.65rem' }} onClick={() => setSelectedModule(null)}>
-          <svg width="24" height="16" viewBox="0 0 3 2" style={{ borderRadius: '3px', overflow: 'hidden', boxShadow: '0 0 10px rgba(0,0,0,0.3)', cursor: 'pointer', flexShrink: 0 }} onClick={playGentleClickSound}>
-            <rect y="0" width="3" height="0.667" fill="#000000"/>
-            <rect y="0.667" width="3" height="0.667" fill="#DD0000"/>
-            <rect y="1.333" width="3" height="0.667" fill="#FFCC00"/>
-          </svg>
-          <span>TÔI BỊ NGU</span>
+        <div className="logo animate-[fadeIn_0.5s_ease-out]" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem' }} onClick={() => setSelectedModule(null)}>
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all duration-300 ${selectedModule === 2 ? 'bg-emerald-950/20 border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.1)]' : 'bg-indigo-950/20 border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.1)]'}`}>
+            <Compass className={`w-4.5 h-4.5 ${selectedModule === 2 ? 'text-emerald-400 animate-[spin_12s_linear_infinite]' : 'text-indigo-400 animate-[spin_16s_linear_infinite]'}`} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: '900', letterSpacing: '2px', color: 'white', textTransform: 'uppercase', fontFamily: 'var(--font-display)' }}>
+              ANTIGRAVITY
+            </span>
+            <span style={{ fontSize: '0.6rem', color: selectedModule === 2 ? 'rgba(16,185,129,0.55)' : 'rgba(99,102,241,0.55)', fontFamily: 'var(--font-sans)', fontWeight: '750', letterSpacing: '1px', textTransform: 'uppercase', marginTop: '-0.15rem' }}>
+              {selectedModule === 2 ? 'Clinical Core' : 'Language Deck'}
+            </span>
+          </div>
         </div>
 
         <div className="header-controls" style={{ display: 'flex', alignItems: 'center', gap: '1.2rem' }}>
@@ -2318,38 +2738,26 @@ export default function App() {
       <div className="main-layout">
         
         {/* Left Side: Sidebar navigation tab buttons */}
-        <aside className="sidebar-panel responsive-sidebar" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+        <aside className="sidebar-panel responsive-sidebar border-r border-white/5 bg-slate-950/45 backdrop-blur-2xl" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', width: '380px', minWidth: '380px' }}>
           
-          {selectedModule !== 2 && (
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '-0.4rem' }}>
-              Menu điều hướng
-            </div>
-          )}
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '0.2rem' }}>
+            Menu điều hướng
+          </div>
 
            {/* Navigation Tab 1: Los geht's Study Center */}
            <div 
              onClick={() => { setActiveSessionCards(null); setRightPanelMode('worten'); }}
-             style={{
-               background: rightPanelMode === 'worten' || rightPanelMode === 'flashcard' ? 'linear-gradient(135deg, var(--bg-tertiary) 0%, var(--accent-active-glow-soft) 100%)' : 'var(--bg-secondary)',
-               border: '1px solid var(--glass-border)',
-               borderRadius: '16px',
-               padding: '1.5rem',
-               cursor: 'pointer',
-               transition: 'all 0.25s ease-in-out',
-               borderColor: rightPanelMode === 'worten' || rightPanelMode === 'flashcard' ? 'var(--accent-active-color)' : 'var(--glass-border)',
-               boxShadow: rightPanelMode === 'worten' || rightPanelMode === 'flashcard' ? '0 0 15px var(--accent-active-glow)' : 'none',
-               display: 'flex',
-               alignItems: 'center',
-               gap: '1rem'
-             }}
-             className="nav-tab-btn"
+             className={`nav-capsule group flex items-center gap-4 ${rightPanelMode === 'worten' || rightPanelMode === 'flashcard' ? (selectedModule === 2 ? 'active-emerald' : 'active-indigo') : ''}`}
            >
-             <span style={{ fontSize: '2rem' }}>⚡</span>
-             <div>
-               <h3 style={{ fontSize: '1.05rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white' }}>
-                 Los geht's
+             <div className="w-10 h-10 rounded-xl bg-white/[0.02] border border-white/5 flex items-center justify-center group-hover:bg-amber-500/10 group-hover:border-amber-500/30 transition-all duration-300">
+               <Zap className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+             </div>
+             <div style={{ flex: 1 }}>
+               <h3 style={{ fontSize: '0.95rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                 <span>Los geht's</span>
+                 <span className="text-[9px] font-mono opacity-50 font-normal">01</span>
                </h3>
-               <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+               <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
                  Thiết lập và ôn tập nhanh hôm nay.
                </p>
              </div>
@@ -2358,28 +2766,18 @@ export default function App() {
           {/* Navigation Tab 2: Bibliothek Search Library */}
           <div 
             onClick={() => { setActiveSessionCards(null); setRightPanelMode('bibliothek'); }}
-            style={{
-              background: rightPanelMode === 'bibliothek' ? 'linear-gradient(135deg, var(--bg-tertiary) 0%, var(--accent-active-glow-soft) 100%)' : 'var(--bg-secondary)',
-              border: '1px solid var(--glass-border)',
-              borderRadius: '16px',
-              padding: '1.5rem',
-              cursor: 'pointer',
-              transition: 'all 0.25s ease-in-out',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '1rem',
-              borderColor: rightPanelMode === 'bibliothek' ? 'var(--accent-active-color)' : 'var(--glass-border)',
-              boxShadow: rightPanelMode === 'bibliothek' ? '0 0 15px var(--accent-active-glow)' : 'none'
-            }}
-            className="nav-tab-btn"
+            className={`nav-capsule group flex items-center gap-4 ${rightPanelMode === 'bibliothek' ? (selectedModule === 2 ? 'active-emerald' : 'active-indigo') : ''}`}
           >
-            <span style={{ fontSize: '2rem' }}>📚</span>
-            <div>
-              <h3 style={{ fontSize: '1.05rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white' }}>
-                Bibliothek
+            <div className="w-10 h-10 rounded-xl bg-white/[0.02] border border-white/5 flex items-center justify-center group-hover:bg-sky-500/10 group-hover:border-sky-500/30 transition-all duration-300">
+              <BookOpen className="w-5 h-5 text-sky-450 group-hover:scale-110 transition-transform" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ fontSize: '0.95rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Bibliothek</span>
+                <span className="text-[9px] font-mono opacity-50 font-normal">02</span>
               </h3>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                {selectedModule === 2 ? "Tra cứu ca bệnh lâm sàng" : "Tra cứu 1000+ từ vựng gốc."}
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                {selectedModule === 2 ? "Tra cứu ca bệnh lâm sàng." : "Tra cứu 1000+ từ vựng gốc."}
               </p>
             </div>
           </div>
@@ -2387,42 +2785,36 @@ export default function App() {
           {/* Navigation Tab 3: Lịch sử ôn tập (History) */}
           <div 
             onClick={() => { setActiveSessionCards(null); setRightPanelMode('history'); }}
-            style={{
-              background: rightPanelMode === 'history' ? 'linear-gradient(135deg, var(--bg-tertiary) 0%, var(--accent-active-glow-soft) 100%)' : 'var(--bg-secondary)',
-              border: '1px solid var(--glass-border)',
-              borderRadius: '16px',
-              padding: '1.5rem',
-              cursor: 'pointer',
-              transition: 'all 0.25s ease-in-out',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '1rem',
-              borderColor: rightPanelMode === 'history' ? 'var(--accent-active-color)' : 'var(--glass-border)',
-              boxShadow: rightPanelMode === 'history' ? '0 0 15px var(--accent-active-glow)' : 'none'
-            }}
-            className="nav-tab-btn"
+            className={`nav-capsule group flex items-center gap-4 ${rightPanelMode === 'history' ? (selectedModule === 2 ? 'active-emerald' : 'active-indigo') : ''}`}
           >
-            <span style={{ fontSize: '2rem' }}>🕒</span>
-            <div>
-              <h3 style={{ fontSize: '1.05rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white' }}>
-                History
+            <div className="w-10 h-10 rounded-xl bg-white/[0.02] border border-white/5 flex items-center justify-center group-hover:bg-indigo-500/10 group-hover:border-indigo-500/30 transition-all duration-300">
+              <History className="w-5 h-5 text-indigo-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ fontSize: '0.95rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Lịch sử (History)</span>
+                <span className="text-[9px] font-mono opacity-50 font-normal">03</span>
               </h3>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
                 Xem lại {studyHistory.length}/30 từ vựng đã ôn gần đây.
               </p>
             </div>
           </div>
 
 
+
+
           {/* Progress display in Sidebar bottom */}
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: '12px', padding: '1rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            <div style={{ fontWeight: '600', color: 'white', marginBottom: '0.4rem' }}>Tiến độ học tập</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
-              <span>Đã thuộc:</span>
-              <span style={{ color: 'var(--status-learned)', fontWeight: '700' }}>{getModuleProgress(selectedModule)}%</span>
+          <div className="bg-slate-900/40 border border-white/5 p-4 rounded-2xl flex flex-col gap-3.5 mt-auto">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="text-[10px] font-mono tracking-wider text-stone-400 font-semibold uppercase">Tiến độ học tập</span>
+              <span className="text-stone-200 font-mono font-bold text-sm bg-white/5 px-2 py-0.5 rounded-md border border-white/5">{getModuleProgress(selectedModule)}%</span>
             </div>
-            <div style={{ width: '100%', height: '6px', background: 'var(--bg-primary)', borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ width: `${getModuleProgress(selectedModule)}%`, height: '100%', background: 'var(--status-learned)', transition: 'width 0.6s ease-out' }}></div>
+            <div className="w-full h-2 bg-stone-950 rounded-full overflow-hidden border border-white/5">
+              <div 
+                className={`h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r ${selectedModule === 2 ? 'from-emerald-500 to-cyan-400 shadow-[0_0_8px_#10b981]' : 'from-indigo-500 to-purple-500 shadow-[0_0_8px_#6366f1]'}`} 
+                style={{ width: `${getModuleProgress(selectedModule)}%` }}
+              ></div>
             </div>
           </div>
 
@@ -2451,31 +2843,33 @@ export default function App() {
               animation: 'fadeIn 0.3s ease-out',
               justifyContent: 'center',
               alignItems: 'center',
-              padding: '2rem'
+              padding: '2rem',
+              overflowY: 'auto'
             }}>
               
               <div 
+                className="cyber-panel-glass w-full max-w-xl p-10 rounded-3xl flex flex-col gap-6 worten-large-setup-card relative overflow-hidden"
                 style={{
                   width: '100%',
-                  maxWidth: '560px',
-                  background: 'var(--glass-bg)',
-                  border: '1px solid var(--glass-border)',
-                  borderRadius: '24px',
-                  padding: '3rem 2.5rem',
-                  boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1.8rem'
+                  maxWidth: '560px'
                 }}
-                className="worten-large-setup-card"
               >
                 
-                <div style={{ textAlign: 'center' }}>
-                  <span style={{ fontSize: '3rem', display: 'block', marginBottom: '0.5rem' }}>⚡</span>
-                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: '800', color: 'white' }}>
+                {/* Visual Accent Top Bar */}
+                <div 
+                  className={`absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r ${selectedModule === 2 ? 'from-emerald-500 via-teal-400 to-cyan-500 shadow-[0_1px_10px_rgba(16,185,129,0.5)]' : 'from-indigo-500 via-purple-400 to-pink-500 shadow-[0_1px_10px_rgba(99,102,241,0.5)]'}`} 
+                />
+
+                <div style={{ textAlign: 'center', marginBottom: '0.4rem' }}>
+                  <div 
+                    className={`w-14 h-14 rounded-2xl mx-auto flex items-center justify-center mb-4 bg-white/[0.02] border border-white/5 ${selectedModule === 2 ? 'glow-emerald-pulse' : 'glow-indigo-pulse'}`}
+                  >
+                    <Zap className={`w-7 h-7 ${selectedModule === 2 ? 'text-emerald-400' : 'text-indigo-400'}`} />
+                  </div>
+                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: '800', color: 'white', letterSpacing: '0.5px' }}>
                     Los geht's
                   </h2>
-                  <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
                     Thiết lập số lượng câu hỏi và bộ lọc để bắt đầu phiên học flashcard.
                   </p>
                 </div>
@@ -2484,62 +2878,57 @@ export default function App() {
                 {unfinishedSession && (
                   <div 
                     style={{
-                      background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(59, 130, 246, 0.15))',
-                      border: '1px solid rgba(99, 102, 241, 0.3)',
-                      borderRadius: '16px',
-                      padding: '1.5rem',
+                      background: 'linear-gradient(135deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0.02) 100%)',
+                      border: '1px solid rgba(255, 255, 255, 0.05)',
+                      borderRadius: '20px',
+                      padding: '1.25rem',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '1.2rem',
-                      transition: 'all 0.2s'
+                      gap: '1rem',
                     }}
                   >
-                    <div>
-                      <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#a5b4fc', textTransform: 'uppercase', marginBottom: '0.2rem' }}>
-                        📚 Tiếp tục phần học dở
-                      </div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: '600', color: 'white' }}>
-                        Có 1 phiên học dở gồm {unfinishedSession.cards.length} từ vựng
-                      </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                      <span className="text-[10px] font-mono font-bold tracking-wider text-amber-400 uppercase">HỌC PHẦN CHƯA HOÀN THÀNH</span>
                     </div>
-                    
-                    <div style={{ display: 'flex', gap: '1rem' }}>
-                      {/* Line 1 button: Tiếp tục */}
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: '600' }}>
+                      Bạn đang có một phiên học dở gồm <span style={{ color: selectedModule === 2 ? '#10b981' : '#8b5cf6' }}>{unfinishedSession.cards.length} thẻ</span>.
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
                       <button 
                         onClick={resumeSession}
                         style={{
-                          flex: 1,
-                          background: 'var(--accent-primary)',
-                          color: 'white',
+                          flex: 1.5,
+                          background: selectedModule === 2 ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #6366f1, #4f46e5)',
                           border: 'none',
-                          padding: '0.65rem 1rem',
-                          borderRadius: '8px',
-                          fontWeight: '600',
+                          color: 'white',
+                          padding: '0.65rem',
+                          borderRadius: '10px',
+                          fontWeight: '700',
                           cursor: 'pointer',
-                          fontSize: '0.9rem',
-                          boxShadow: '0 4px 10px rgba(99, 102, 241, 0.2)',
-                          transition: 'all 0.2s'
+                          fontSize: '0.85rem',
+                          transition: 'all 0.2s',
+                          boxShadow: selectedModule === 2 ? '0 4px 12px rgba(16,185,129,0.25)' : '0 4px 12px rgba(99,102,241,0.25)'
                         }}
                       >
-                        ▶ Tiếp tục
+                        ▶ Tiếp tục học
                       </button>
-                      {/* Line 2 button: Loại bỏ */}
                       <button 
                         onClick={discardUnfinishedSession}
                         style={{
                           flex: 1,
-                          background: 'rgba(239, 68, 68, 0.15)',
+                          background: 'rgba(239, 68, 68, 0.08)',
+                          border: '1px solid rgba(239, 68, 68, 0.25)',
                           color: '#fca5a5',
-                          border: '1px solid rgba(239, 68, 68, 0.3)',
-                          padding: '0.65rem 1rem',
-                          borderRadius: '8px',
-                          fontWeight: '600',
+                          padding: '0.65rem',
+                          borderRadius: '10px',
+                          fontWeight: '700',
                           cursor: 'pointer',
-                          fontSize: '0.9rem',
+                          fontSize: '0.85rem',
                           transition: 'all 0.2s'
                         }}
                       >
-                        🗑 Loại bỏ
+                        🗑️ Loại bỏ
                       </button>
                     </div>
                   </div>
@@ -2549,79 +2938,103 @@ export default function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
                   
                    <div className="form-group">
-                    <label className="form-label" style={{ fontSize: '0.85rem' }}>
-                      {selectedModule === 2 ? "Số lượng câu hỏi lâm sàng ôn tập hôm nay" : "Số lượng từ vựng ôn tập hôm nay"}
+                    <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: '700', textTransform: 'uppercase', tracking: '0.5px', color: 'var(--text-secondary)' }}>
+                      {selectedModule === 2 ? "Số lượng câu hỏi lâm sàng ôn tập" : "Số lượng từ vựng ôn tập"}
                     </label>
-                    <input 
-                      type="number" 
-                      min="1" 
-                      max="100" 
-                      className="form-input" 
-                      value={studyCount}
-                      onChange={(e) => setStudyCount(e.target.value)}
-                      style={{ padding: '0.8rem 1rem', fontSize: '1rem', borderRadius: '12px' }}
-                    />
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '0.2rem' }}>
+                      <button 
+                        type="button"
+                        onClick={() => setStudyCount(prev => Math.max(1, Number(prev) - 5))}
+                        style={{ width: '38px', height: '38px', background: 'rgba(255,255,255,0.02)', border: 'none', color: 'white', borderRadius: '10px', fontWeight: '750', fontSize: '1.1rem', cursor: 'pointer', transition: 'all 0.15s' }}
+                        onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.06)'}
+                        onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.02)'}
+                      >
+                        -
+                      </button>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="100" 
+                        className="form-input" 
+                        value={studyCount}
+                        onChange={(e) => setStudyCount(e.target.value)}
+                        style={{ flex: 1, border: 'none', background: 'transparent', textAlign: 'center', fontSize: '1.1rem', fontWeight: '700', color: 'white', padding: '0.3rem', outline: 'none' }}
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setStudyCount(prev => Math.min(100, Number(prev) + 5))}
+                        style={{ width: '38px', height: '38px', background: 'rgba(255,255,255,0.02)', border: 'none', color: 'white', borderRadius: '10px', fontWeight: '750', fontSize: '1.1rem', cursor: 'pointer', transition: 'all 0.15s' }}
+                        onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.06)'}
+                        onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.02)'}
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label" style={{ fontSize: '0.85rem' }}>
-                      {selectedModule === 2 ? "Trạng thái câu hỏi lâm sàng mục tiêu" : "Trạng thái từ vựng mục tiêu"}
+                    <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: '700', textTransform: 'uppercase', tracking: '0.5px', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                      Mục tiêu ôn tập
                     </label>
-                    <select 
-                      className="form-select"
-                      value={studyStateFilter}
-                      onChange={(e) => setStudyStateFilter(e.target.value)}
-                      style={{ padding: '0.8rem', fontSize: '1rem', borderRadius: '12px' }}
-                    >
-                      <option value="all">Tất cả trạng thái (Tổng hợp)</option>
-                      <option value="unlearned">
-                        {selectedModule === 2 ? "Chưa thuộc (Khuyên dùng)" : "Chưa học (Đỏ - Khuyên dùng)"}
-                      </option>
-                      <option value="learned">
-                        {selectedModule === 2 ? "Đã thuộc (Ôn tập lại)" : "Đã học (Xanh lá - Ôn tập lại)"}
-                      </option>
-                    </select>
+                    <div style={{ display: 'flex', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '0.25rem', gap: '0.25rem' }}>
+                      {[
+                        { id: 'all', label: 'Tất cả' },
+                        { id: 'unlearned', label: selectedModule === 2 ? 'Chưa thuộc' : 'Chưa học' },
+                        { id: 'learned', label: selectedModule === 2 ? 'Đã thuộc' : 'Đã học' }
+                      ].map(item => {
+                        const isActive = studyStateFilter === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setStudyStateFilter(item.id)}
+                            className={`cyber-pill-toggle ${isActive ? (selectedModule === 2 ? 'active-emerald' : 'active-indigo') : ''}`}
+                            style={{ flex: 1, padding: '0.55rem 0.5rem', fontSize: '0.8rem', borderRadius: '8px' }}
+                          >
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {selectedModule === 1 && (
-                    <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                      <label className="form-label" style={{ fontSize: '0.85rem' }}>Loại từ vựng ôn tập (Chọn nhiều loại cùng lúc)</label>
+                    <div className="form-group animate-[fadeIn_0.3s_ease-out]" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <Zap className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Loại từ vựng (Chọn nhiều loại)</span>
+                      </label>
                       <div style={{
                         display: 'flex',
                         flexWrap: 'wrap',
-                        gap: '0.5rem',
+                        gap: '0.45rem',
                         padding: '0.8rem',
-                        background: 'var(--bg-primary)',
-                        borderRadius: '12px',
-                        border: '1px solid var(--glass-border)'
+                        background: 'rgba(255, 255, 255, 0.01)',
+                        border: '1px solid rgba(255, 255, 255, 0.04)',
+                        borderRadius: '16px'
                       }}>
                         <button
+                          type="button"
                           onClick={() => setStudyWordClasses([])}
-                          style={{
-                            padding: '0.35rem 0.75rem',
-                            borderRadius: '8px',
-                            fontSize: '0.8rem',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            transition: 'all 0.15s',
-                            border: studyWordClasses.length === 0 ? '1px solid var(--accent-primary)' : '1px solid var(--glass-border)',
-                            background: studyWordClasses.length === 0 ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)',
-                            color: studyWordClasses.length === 0 ? 'white' : 'var(--text-secondary)'
-                          }}
+                          className={`cyber-pill-toggle flex items-center gap-1.5 transition-all duration-300 ${studyWordClasses.length === 0 ? 'active-indigo' : ''}`}
+                          style={{ padding: '0.45rem 0.8rem', fontSize: '0.75rem', borderRadius: '10px' }}
                         >
-                          Tất cả loại từ
+                          <span className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${studyWordClasses.length === 0 ? 'bg-indigo-400 shadow-[0_0_8px_#6366f1] animate-pulse' : 'bg-white/20'}`} />
+                          <span>Tất cả loại từ</span>
                         </button>
                         {[
-                          { id: 'noun', name: 'Danh từ (Nouns)' },
-                          { id: 'verb', name: 'Động từ (Verbs)' },
-                          { id: 'adjective', name: 'Tính từ (Adjectives)' },
-                          { id: 'adverb', name: 'Trạng từ (Adverbs)' },
-                          { id: 'preposition', name: 'Giới từ (Prepositions)' }
+                          { id: 'noun', name: 'Danh từ' },
+                          { id: 'verb', name: 'Động từ' },
+                          { id: 'adjective', name: 'Tính từ' },
+                          { id: 'adverb', name: 'Trạng từ' },
+                          { id: 'preposition', name: 'Giới từ' }
                         ].map(wc => {
                           const isActive = studyWordClasses.includes(wc.id);
                           return (
                             <button
                               key={wc.id}
+                              type="button"
                               onClick={() => {
                                 setStudyWordClasses(prev => {
                                   if (prev.includes(wc.id)) {
@@ -2631,19 +3044,11 @@ export default function App() {
                                   }
                                 });
                               }}
-                              style={{
-                                padding: '0.35rem 0.75rem',
-                                borderRadius: '8px',
-                                fontSize: '0.8rem',
-                                fontWeight: '600',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s',
-                                border: isActive ? '1px solid var(--accent-primary)' : '1px solid var(--glass-border)',
-                                background: isActive ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)',
-                                color: isActive ? 'white' : 'var(--text-secondary)'
-                              }}
+                              className={`cyber-pill-toggle flex items-center gap-1.5 transition-all duration-300 ${isActive ? 'active-indigo' : ''}`}
+                              style={{ padding: '0.45rem 0.8rem', fontSize: '0.75rem', borderRadius: '10px' }}
                             >
-                              {wc.name}
+                              <span className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${isActive ? 'bg-indigo-400 shadow-[0_0_8px_#6366f1] animate-pulse' : 'bg-white/20'}`} />
+                              <span>{wc.name}</span>
                             </button>
                           );
                         })}
@@ -2652,40 +3057,40 @@ export default function App() {
                   )}
 
                   {selectedModule === 2 && (
-                    <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                      <label className="form-label" style={{ fontSize: '0.85rem' }}>Chọn Chuyên Khoa Ôn Tập (Chọn nhiều chuyên khoa cùng lúc)</label>
-                      <div style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '0.5rem',
-                        maxHeight: '140px',
-                        overflowY: 'auto',
-                        padding: '0.8rem',
-                        background: 'var(--bg-primary)',
-                        borderRadius: '12px',
-                        border: '1px solid var(--glass-border)'
-                      }}>
+                    <div className="form-group animate-[fadeIn_0.3s_ease-out]" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <Layers className="w-3.5 h-3.5 text-emerald-450 animate-pulse" />
+                        <span>Chọn chuyên khoa (Chọn nhiều chuyên khoa)</span>
+                      </label>
+                      <div 
+                        className="left-sidebar-scroll"
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '0.45rem',
+                          maxHeight: '140px',
+                          overflowY: 'auto',
+                          padding: '0.8rem',
+                          background: 'rgba(255, 255, 255, 0.01)',
+                          border: '1px solid rgba(255, 255, 255, 0.04)',
+                          borderRadius: '16px'
+                        }}
+                      >
                         <button
+                          type="button"
                           onClick={() => setStudySpecialties([])}
-                          style={{
-                            padding: '0.35rem 0.75rem',
-                            borderRadius: '8px',
-                            fontSize: '0.8rem',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            transition: 'all 0.15s',
-                            border: studySpecialties.length === 0 ? '1px solid var(--accent-primary)' : '1px solid var(--glass-border)',
-                            background: studySpecialties.length === 0 ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)',
-                            color: studySpecialties.length === 0 ? 'white' : 'var(--text-secondary)'
-                          }}
+                          className={`cyber-pill-toggle flex items-center gap-1.5 transition-all duration-300 ${studySpecialties.length === 0 ? 'active-emerald' : ''}`}
+                          style={{ padding: '0.45rem 0.8rem', fontSize: '0.75rem', borderRadius: '10px' }}
                         >
-                          Tất cả chuyên khoa
+                          <span className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${studySpecialties.length === 0 ? 'bg-emerald-400 shadow-[0_0_8px_#10b981] animate-pulse' : 'bg-white/20'}`} />
+                          <span>Tất cả chuyên khoa</span>
                         </button>
                         {medicalSpecialties.map(spec => {
                           const isActive = studySpecialties.includes(spec);
                           return (
                             <button
                               key={spec}
+                              type="button"
                               onClick={() => {
                                 setStudySpecialties(prev => {
                                   if (prev.includes(spec)) {
@@ -2695,19 +3100,11 @@ export default function App() {
                                   }
                                 });
                               }}
-                              style={{
-                                padding: '0.35rem 0.75rem',
-                                borderRadius: '8px',
-                                fontSize: '0.8rem',
-                                fontWeight: '600',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s',
-                                border: isActive ? '1px solid var(--accent-primary)' : '1px solid var(--glass-border)',
-                                background: isActive ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)',
-                                color: isActive ? 'white' : 'var(--text-secondary)'
-                              }}
+                              className={`cyber-pill-toggle flex items-center gap-1.5 transition-all duration-300 ${isActive ? 'active-emerald' : ''}`}
+                              style={{ padding: '0.45rem 0.8rem', fontSize: '0.75rem', borderRadius: '10px' }}
                             >
-                              {spec}
+                              <span className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${isActive ? 'bg-emerald-400 shadow-[0_0_8px_#10b981] animate-pulse' : 'bg-white/20'}`} />
+                              <span>{spec}</span>
                             </button>
                           );
                         })}
@@ -2715,12 +3112,131 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* 2b. CHỌN BÀI HỌC CỤ THỂ (TÙY CHỌN) */}
+                  {selectedModule === 2 && (
+                    <div className="form-group animate-[fadeIn_0.3s_ease-out]" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.5rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <BookOpen className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                          <span>Chọn bài học cụ thể (Tùy chọn)</span>
+                        </label>
+                        {studyLessons.length > 0 && (
+                          <button 
+                            type="button" 
+                            onClick={() => setStudyLessons([])}
+                            style={{ fontSize: '0.7rem', color: '#f87171', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}
+                          >
+                            Xóa chọn ({studyLessons.length})
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Search controls */}
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <Search className="w-3 h-3 text-white/30" style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)' }} />
+                          <input
+                            type="text"
+                            placeholder="Tìm bài học (ví dụ: Pneumonie, Sepsis...)"
+                            value={lessonSearchQuery}
+                            onChange={(e) => setLessonSearchQuery(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '0.4rem 0.6rem 0.4rem 1.8rem',
+                              fontSize: '0.75rem',
+                              background: 'rgba(255,255,255,0.02)',
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              borderRadius: '8px',
+                              color: '#fff',
+                              outline: 'none',
+                              transition: 'all 0.3s'
+                            }}
+                            className="focus:border-emerald-500/55 focus:shadow-[0_0_8px_rgba(16,185,129,0.15)]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Scrollable list */}
+                      <div 
+                        className="left-sidebar-scroll"
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.3rem',
+                          maxHeight: '180px',
+                          overflowY: 'auto',
+                          padding: '0.6rem',
+                          background: 'rgba(255, 255, 255, 0.01)',
+                          border: '1px solid rgba(255, 255, 255, 0.04)',
+                          borderRadius: '16px'
+                        }}
+                      >
+                        {availableLessons.filter(lesson => 
+                          lesson.toLowerCase().includes(lessonSearchQuery.toLowerCase())
+                        ).length === 0 ? (
+                          <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', padding: '1rem' }}>
+                            Không tìm thấy bài học nào phù hợp
+                          </div>
+                        ) : (
+                          availableLessons.filter(lesson => 
+                            lesson.toLowerCase().includes(lessonSearchQuery.toLowerCase())
+                          ).map(lesson => {
+                            const isActive = studyLessons.includes(lesson);
+                            const cardCount = lessonCardCounts[lesson] || 0;
+                            return (
+                              <div
+                                key={lesson}
+                                onClick={() => {
+                                  setStudyLessons(prev => {
+                                    if (prev.includes(lesson)) {
+                                      return prev.filter(l => l !== lesson);
+                                    } else {
+                                      return [...prev, lesson];
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '0.45rem 0.75rem',
+                                  fontSize: '0.75rem',
+                                  borderRadius: '8px',
+                                  cursor: 'pointer',
+                                  background: isActive ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255,255,255,0.01)',
+                                  border: `1px solid ${isActive ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255,255,255,0.03)'}`,
+                                  transition: 'all 0.2s'
+                                }}
+                                className="hover:bg-white/[0.04] transition-all"
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: 1, overflow: 'hidden' }}>
+                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-all duration-300 ${isActive ? 'bg-emerald-400 shadow-[0_0_8px_#10b981]' : 'bg-white/20'}`} />
+                                  <span style={{ 
+                                    color: isActive ? '#34d399' : '#e2e8f0', 
+                                    fontWeight: isActive ? '600' : '400',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                  }}>
+                                    {lesson}
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: '0.65rem', color: isActive ? '#a7f3d0' : 'rgba(255,255,255,0.35)', background: isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.03)', padding: '0.1rem 0.4rem', borderRadius: '6px' }}>
+                                  {cardCount} thẻ
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                 </div>
 
                 <button 
-                  className="btn-primary" 
-                  onClick={startNewSession} 
-                  style={{ padding: '1rem', fontSize: '1.05rem', borderRadius: '12px', marginTop: '0.5rem' }}
+                  onClick={startNewSession}
+                  className={`w-full py-4 mt-2 rounded-2xl font-bold tracking-wider text-sm text-white uppercase transition-all duration-300 transform hover:-translate-y-0.5 hover:shadow-lg ${selectedModule === 2 ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 hover:shadow-emerald-500/20' : 'bg-gradient-to-r from-indigo-500 to-purple-500 hover:shadow-indigo-500/20'}`}
                 >
                   Bắt đầu ôn Flashcard →
                 </button>
@@ -2732,17 +3248,16 @@ export default function App() {
 
           {/* 3. DUYỆT VIEWER — Review Queue with Public / Delete actions */}
           {rightPanelMode === 'duyet' && (
-              <DuyetView 
-                cards={allCards} 
-                selectedModule={selectedModule} 
-                apiBaseUrl={API_BASE_URL} 
-                showAnkiToast={showAnkiToast} 
-                setRocketState={setRocketState}
-                setModalSessionCards={setModalSessionCards}
-                setModalStartIndex={setModalStartIndex}
-              />
-            )}
-
+            <DuyetView 
+              cards={allCards} 
+              selectedModule={selectedModule} 
+              apiBaseUrl={API_BASE_URL} 
+              showAnkiToast={showAnkiToast} 
+              setRocketState={setRocketState}
+              setModalSessionCards={setModalSessionCards}
+              setModalStartIndex={setModalStartIndex}
+            />
+          )}
 
           {/* 3b. BIBLIOTHEK VIEWER (hidden but kept for compatibility) */}
           {rightPanelMode === 'bibliothek' && (
@@ -2757,23 +3272,34 @@ export default function App() {
               
               {/* Header with Search and Quick Filters */}
               <div className="lib-header-container" style={{
-                background: 'rgba(15, 20, 35, 0.45)',
-                backdropFilter: 'blur(12px)',
+                background: 'rgba(5, 6, 12, 0.6)',
+                backdropFilter: 'blur(20px)',
                 borderBottom: '1px solid var(--glass-border)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '0.65rem',
-                padding: '0.8rem 1.4rem'
+                gap: '0.8rem',
+                padding: '1.2rem 2rem',
+                position: 'relative'
               }}>
+                {/* Decorative accent top bar */}
+                <div 
+                  className={`absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r ${selectedModule === 2 ? 'from-emerald-500 to-cyan-500 shadow-[0_0_8px_#10b981]' : 'from-indigo-500 to-purple-500 shadow-[0_0_8px_#6366f1]'}`} 
+                />
                 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.25rem', fontWeight: '800', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                      {selectedModule === 2 ? "Thư viện lâm sàng (Klinik)" : "Thư viện từ vựng (Bibliothek)"}
+                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: '850', color: 'white', display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0 }}>
+                      {selectedModule === 2 ? <Layers className="w-5 h-5 text-emerald-450 animate-pulse" /> : <BookOpen className="w-5 h-5 text-indigo-400" />}
+                      <span>{selectedModule === 2 ? "Thư viện lâm sàng (Klinik)" : "Thư viện từ vựng (Bibliothek)"}</span>
                     </h2>
                     {selectedModule === 1 && (
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.1rem', margin: 0 }}>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.15rem', margin: 0 }}>
                         Duyệt từ gốc cực kỳ tinh giản. Nhấp để tra cứu chi tiết dạng Flashcard.
+                      </p>
+                    )}
+                    {selectedModule === 2 && (
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.15rem', margin: 0 }}>
+                        Tra cứu ca bệnh lâm sàng Meditricks M2 chuyên sâu. Bấm vào thẻ để ôn tập.
                       </p>
                     )}
                   </div>
@@ -2781,17 +3307,23 @@ export default function App() {
                   <button 
                     onClick={() => setRightPanelMode('worten')}
                     style={{
-                      background: 'var(--bg-primary)',
+                      background: 'rgba(255,255,255,0.03)',
                       border: '1px solid var(--glass-border)',
-                      color: 'var(--text-primary)',
-                      padding: '0.35rem 0.85rem',
-                      borderRadius: '6px',
+                      color: 'var(--text-secondary)',
+                      padding: '0.45rem 1rem',
+                      borderRadius: '10px',
                       cursor: 'pointer',
-                      fontSize: '0.75rem',
-                      fontWeight: '600'
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      transition: 'all 0.2s'
                     }}
+                    onMouseEnter={(e) => e.target.style.color = 'white'}
+                    onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}
                   >
-                    ✕ Đóng thư viện
+                    <ArrowLeft className="w-4 h-4" /> <span>Quay lại</span>
                   </button>
                 </div>
 
@@ -2800,7 +3332,9 @@ export default function App() {
                   
                   {/* Modern Search Bar */}
                   <div style={{ flex: 1, position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.8rem' }}>🔍</span>
+                    <span style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}>
+                      <Search className="w-4 h-4" />
+                    </span>
                     <input 
                       type="text" 
                       placeholder={selectedModule === 2 
@@ -2810,26 +3344,35 @@ export default function App() {
                       value={libSearchQuery}
                       onChange={(e) => setLibSearchQuery(e.target.value)}
                       style={{
-                        padding: '0.4rem 1.8rem 0.4rem 2.1rem',
-                        background: 'var(--bg-primary)',
-                        fontSize: '0.82rem',
-                        borderRadius: '6px',
-                        height: '32px'
+                        padding: '0.45rem 2rem 0.45rem 2.3rem',
+                        background: 'rgba(0,0,0,0.25)',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        fontSize: '0.85rem',
+                        borderRadius: '10px',
+                        height: '38px',
+                        color: 'white',
+                        width: '100%',
+                        outline: 'none',
+                        transition: 'all 0.2s'
                       }}
+                      onFocus={(e) => e.target.style.borderColor = selectedModule === 2 ? '#10b981' : '#6366f1'}
+                      onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.06)'}
                     />
                     {libSearchQuery && (
                       <button 
                         onClick={() => setLibSearchQuery('')}
                         style={{
                           position: 'absolute',
-                          right: '0.7rem',
+                          right: '0.8rem',
                           top: '50%',
                           transform: 'translateY(-50%)',
                           background: 'transparent',
                           border: 'none',
                           color: 'var(--text-muted)',
                           cursor: 'pointer',
-                          fontSize: '0.8rem'
+                          fontSize: '0.9rem',
+                          display: 'flex',
+                          alignItems: 'center'
                         }}
                       >
                         ✕
@@ -2839,16 +3382,27 @@ export default function App() {
 
                   {/* Specialty Dropdown for Medicine Module */}
                   {selectedModule === 2 && (
-                    <div style={{ width: '220px' }}>
+                    <div style={{ width: '240px' }}>
                       <select 
                         className="form-select" 
                         value={libCategoryFilter}
                         onChange={(e) => setLibCategoryFilter(e.target.value)}
-                        style={{ background: 'var(--bg-primary)', padding: '0.4rem 1.8rem 0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.82rem', height: '32px', cursor: 'pointer' }}
+                        style={{ 
+                          background: 'rgba(0,0,0,0.25)', 
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          padding: '0.45rem 1.8rem 0.45rem 0.75rem', 
+                          borderRadius: '10px', 
+                          fontSize: '0.85rem', 
+                          height: '38px', 
+                          cursor: 'pointer',
+                          color: 'white',
+                          width: '100%',
+                          outline: 'none'
+                        }}
                       >
-                        <option value="All">Tất cả chuyên khoa ({medicalSpecialties.length})</option>
+                        <option value="All" style={{ background: '#09090f' }}>Tất cả chuyên khoa ({medicalSpecialties.length})</option>
                         {medicalSpecialties.map(spec => (
-                          <option key={spec} value={spec}>{spec}</option>
+                          <option key={spec} value={spec} style={{ background: '#09090f' }}>{spec}</option>
                         ))}
                       </select>
                     </div>
@@ -2856,68 +3410,75 @@ export default function App() {
 
                   {/* Word Class Dropdown for German Module */}
                   {selectedModule === 1 && (
-                    <div style={{ width: '180px' }}>
+                    <div style={{ width: '200px' }}>
                       <select 
                         className="form-select" 
                         value={libWordClassFilter}
                         onChange={(e) => setLibWordClassFilter(e.target.value)}
-                        style={{ background: 'var(--bg-primary)', padding: '0.4rem 1.8rem 0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.82rem', height: '32px', cursor: 'pointer' }}
+                        style={{ 
+                          background: 'rgba(0,0,0,0.25)', 
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          padding: '0.45rem 1.8rem 0.45rem 0.75rem', 
+                          borderRadius: '10px', 
+                          fontSize: '0.85rem', 
+                          height: '38px', 
+                          cursor: 'pointer',
+                          color: 'white',
+                          width: '100%',
+                          outline: 'none'
+                        }}
                       >
-                        <option value="all">Tất cả loại từ</option>
-                        <option value="noun">Danh từ (Nouns)</option>
-                        <option value="verb">Động từ (Verbs)</option>
-                        <option value="adjective">Tính từ (Adjectives)</option>
-                        <option value="adverb">Trạng từ (Adverbs)</option>
-                        <option value="preposition">Giới từ (Prepositions)</option>
+                        <option value="all" style={{ background: '#09090f' }}>Tất cả loại từ</option>
+                        <option value="noun" style={{ background: '#09090f' }}>Danh từ (Nouns)</option>
+                        <option value="verb" style={{ background: '#09090f' }}>Động từ (Verbs)</option>
+                        <option value="adjective" style={{ background: '#09090f' }}>Tính từ (Adjectives)</option>
+                        <option value="adverb" style={{ background: '#09090f' }}>Trạng từ (Adverbs)</option>
+                        <option value="preposition" style={{ background: '#09090f' }}>Giới từ (Prepositions)</option>
                       </select>
                     </div>
                   )}
 
                   {/* Learned Status Filters */}
-                  <div className="status-badge-filter" style={{ background: 'var(--bg-primary)', padding: '0.15rem', borderRadius: '6px', border: '1px solid var(--glass-border)', display: 'flex', gap: '0.15rem' }}>
-                    <button 
-                      className={`filter-badge ${libStatusFilter === 'all' ? 'active' : ''}`}
-                      onClick={() => setLibStatusFilter('all')}
-                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
-                    >
-                      Tất cả
-                    </button>
-                    <button 
-                      className={`filter-badge ${libStatusFilter === 'unlearned' ? 'active' : ''}`}
-                      onClick={() => setLibStatusFilter('unlearned')}
-                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
-                    >
-                      Chưa học
-                    </button>
-                    <button 
-                      className={`filter-badge ${libStatusFilter === 'learned' ? 'active' : ''}`}
-                      onClick={() => setLibStatusFilter('learned')}
-                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
-                    >
-                      Đã học
-                    </button>
+                  <div style={{ display: 'flex', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.06)', padding: '0.2rem', borderRadius: '10px', gap: '0.2rem', height: '38px', alignItems: 'center' }}>
+                    {[
+                      { id: 'all', label: 'Tất cả' },
+                      { id: 'unlearned', label: 'Chưa học' },
+                      { id: 'learned', label: 'Đã học' }
+                    ].map(item => {
+                      const isActive = libStatusFilter === item.id;
+                      return (
+                        <button 
+                          key={item.id}
+                          className={`cyber-pill-toggle ${isActive ? (selectedModule === 2 ? 'active-emerald' : 'active-indigo') : ''}`}
+                          onClick={() => setLibStatusFilter(item.id)}
+                          style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem', borderRadius: '6px' }}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
                   </div>
 
                 </div>
 
                 {/* Alphabet filters */}
                 {selectedModule === 1 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', marginRight: '0.2rem', whiteSpace: 'nowrap' }}>Lọc chữ cái:</span>
-                    <div className="alphabet-filter" style={{ flex: 1, marginBottom: 0, paddingBottom: 0, gap: '0.2rem', display: 'flex', overflowX: 'auto' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '10px', padding: '0.35rem 0.75rem' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', tracking: '1px', whiteSpace: 'nowrap' }}>Lọc chữ cái:</span>
+                    <div className="alphabet-filter no-scrollbar" style={{ flex: 1, marginBottom: 0, paddingBottom: 0, gap: '0.2rem', display: 'flex', overflowX: 'auto', scrollBehavior: 'smooth' }}>
                       <button 
-                        className={`letter-btn ${libLetterFilter === 'All' ? 'active' : ''}`}
+                        className={`cyber-pill-toggle ${libLetterFilter === 'All' ? 'active-indigo' : ''}`}
                         onClick={() => setLibLetterFilter('All')}
-                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', borderRadius: '4px' }}
+                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', borderRadius: '5px', minWidth: '32px' }}
                       >
-                        Tất cả
+                        All
                       </button>
                       {alphabet.map(letter => (
                         <button 
                           key={letter} 
-                          className={`letter-btn ${libLetterFilter === letter ? 'active' : ''}`}
+                          className={`cyber-pill-toggle ${libLetterFilter === letter ? 'active-indigo' : ''}`}
                           onClick={() => setLibLetterFilter(letter)}
-                          style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', borderRadius: '4px' }}
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', borderRadius: '5px', minWidth: '24px' }}
                         >
                           {letter}
                         </button>
@@ -2932,28 +3493,29 @@ export default function App() {
                     display: 'flex',
                     gap: '0.5rem',
                     alignItems: 'center',
-                    marginTop: '0.1rem',
-                    fontSize: '0.78rem',
-                    padding: '0 0.1rem'
+                    background: 'rgba(255,255,255,0.01)',
+                    border: '1px solid rgba(255,255,255,0.04)',
+                    padding: '0.4rem 0.75rem',
+                    borderRadius: '10px'
                   }}>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
-                      ➕ Thêm bài lớn:
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: '700', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                      <Plus className="w-3.5 h-3.5 text-emerald-450" /> <span>Thêm bài:</span>
                     </span>
                     
                     <input
                       type="text"
-                      placeholder="Tên bài mới..."
+                      placeholder="Tên chủ đề/bài lớn mới..."
                       value={newLessonInputVal}
                       onChange={e => setNewLessonInputVal(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') handleAddNewLesson(); }}
                       style={{
-                        width: '160px',
-                        padding: '0.3rem 0.5rem',
+                        width: '180px',
+                        padding: '0.35rem 0.6rem',
                         borderRadius: '6px',
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(0,0,0,0.25)',
+                        border: '1px solid rgba(255,255,255,0.06)',
                         color: 'white',
-                        fontSize: '0.75rem',
+                        fontSize: '0.78rem',
                         outline: 'none',
                       }}
                     />
@@ -2962,13 +3524,13 @@ export default function App() {
                       value={newLessonSpecialty}
                       onChange={e => setNewLessonSpecialty(e.target.value)}
                       style={{
-                        width: '130px',
-                        padding: '0.3rem 0.4rem',
+                        width: '140px',
+                        padding: '0.35rem 0.5rem',
                         borderRadius: '6px',
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(0,0,0,0.25)',
+                        border: '1px solid rgba(255,255,255,0.06)',
                         color: 'white',
-                        fontSize: '0.75rem',
+                        fontSize: '0.78rem',
                         outline: 'none',
                         cursor: 'pointer',
                       }}
@@ -2981,18 +3543,20 @@ export default function App() {
                     <button
                       onClick={handleAddNewLesson}
                       style={{
-                        background: 'rgba(99,102,241,0.15)',
-                        border: '1px solid rgba(99,102,241,0.25)',
-                        color: '#a5b4fc',
-                        padding: '0.3rem 0.8rem',
+                        background: 'rgba(16,185,129,0.12)',
+                        border: '1px solid rgba(16,185,129,0.25)',
+                        color: '#34d399',
+                        padding: '0.35rem 0.8rem',
                         borderRadius: '6px',
-                        fontSize: '0.75rem',
+                        fontSize: '0.78rem',
                         fontWeight: '700',
                         cursor: 'pointer',
                         transition: 'all 0.2s',
                       }}
+                      onMouseEnter={(e) => e.target.style.background = 'rgba(16,185,129,0.2)'}
+                      onMouseLeave={(e) => e.target.style.background = 'rgba(16,185,129,0.12)'}
                     >
-                      Thêm bài
+                      Lưu bài
                     </button>
                   </div>
                 )}
@@ -3025,7 +3589,7 @@ export default function App() {
                               const hasCards = groupCards.length > 0;
                               
                               return (
-                                 <div key={diseaseName} style={{ marginBottom: '0.85rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', overflow: 'hidden' }}>
+                                 <div key={diseaseName} style={{ marginBottom: '0.85rem', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '16px', overflow: 'hidden', transition: 'all 0.2s' }}>
                                    {/* Group header — disease name */}
                                    <div 
                                      onClick={() => {
@@ -3033,40 +3597,45 @@ export default function App() {
                                          setExpandedThemes(prev => ({ ...prev, [diseaseName]: !prev[diseaseName] }));
                                        }
                                      }}
-                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.2rem', background: 'rgba(255,255,255,0.04)', cursor: hasCards ? 'pointer' : 'default', transition: 'background 0.2s' }}
+                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', background: 'rgba(255,255,255,0.02)', cursor: hasCards ? 'pointer' : 'default', transition: 'all 0.2s' }}
                                      className={hasCards ? "lib-group-header-hover" : ""}
                                    >
-                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                                        {hasCards ? (
-                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', userSelect: 'none', width: '12px' }}>
-                                           {isExpanded ? '▼' : '▶'}
-                                         </span>
+                                         <ChevronDown 
+                                           className={`w-4 h-4 text-stone-400 transition-transform duration-300 ${isExpanded ? '' : '-rotate-90'}`} 
+                                         />
                                        ) : (
-                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', opacity: 0.3, userSelect: 'none', width: '12px' }}>
+                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', opacity: 0.3, userSelect: 'none', width: '16px', textAlign: 'center' }}>
                                            •
                                          </span>
                                        )}
-                                       <span style={{ fontWeight: '700', fontSize: '0.98rem', color: 'white' }}>📖 {displayName}</span>
+                                       <span style={{ fontWeight: '700', fontSize: '1rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                         <span>📖</span>
+                                         <span className="truncate max-w-[280px] sm:max-w-md">{displayName}</span>
+                                       </span>
                                      </div>
                                      
-                                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                       <span style={{ fontSize: '0.75rem', color: allLearned ? '#34d399' : 'var(--text-muted)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                                         {hasCards && (
-                                           <>
-                                             <span>{learnedCount}/{groupCards.length} ✓</span>
-                                             <span 
-                                               onClick={(e) => {
-                                                 e.stopPropagation();
-                                                 setModalSessionCards(groupCards);
-                                                 setModalStartIndex(0);
-                                               }}
-                                               style={{ color: '#fbbf24', fontSize: '0.8rem', fontWeight: '700', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', padding: '0.15rem 0.5rem', borderRadius: '6px', cursor: 'pointer' }}
-                                             >
-                                               Ôn tập →
-                                             </span>
-                                           </>
-                                         )}
-                                       </span>
+                                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                                       {hasCards && (
+                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                           <span style={{ fontSize: '0.75rem', color: allLearned ? '#34d399' : 'var(--text-secondary)', fontWeight: '700', background: allLearned ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${allLearned ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.06)'}`, padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
+                                             {learnedCount}/{groupCards.length} ✓
+                                           </span>
+                                           <button 
+                                             onClick={(e) => {
+                                               e.stopPropagation();
+                                               setModalSessionCards(groupCards);
+                                               setModalStartIndex(0);
+                                             }}
+                                             style={{ color: '#fbbf24', fontSize: '0.78rem', fontWeight: '700', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', padding: '0.25rem 0.65rem', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 2px 6px rgba(245,158,11,0.1)' }}
+                                             onMouseEnter={(e) => e.target.style.background = 'rgba(245,158,11,0.2)'}
+                                             onMouseLeave={(e) => e.target.style.background = 'rgba(245,158,11,0.1)'}
+                                           >
+                                             Ôn tập →
+                                           </button>
+                                         </div>
+                                       )}
 
                                        <select
                                          value={manualSpecialties[diseaseName] || groupCards[0]?.category || 'Innere Medizin'}
@@ -3078,16 +3647,17 @@ export default function App() {
                                          onClick={(e) => e.stopPropagation()}
                                          style={{
                                            fontSize: '0.78rem',
-                                           padding: '0.3rem 0.6rem',
-                                           background: 'var(--bg-primary)',
-                                           border: '1px solid var(--glass-border)',
+                                           padding: '0.25rem 0.5rem',
+                                           background: 'rgba(0,0,0,0.25)',
+                                           border: '1px solid rgba(255,255,255,0.06)',
                                            borderRadius: '8px',
                                            color: 'white',
-                                           cursor: 'pointer'
+                                           cursor: 'pointer',
+                                           outline: 'none'
                                          }}
                                        >
                                          {medicalSpecialties.map(spec => (
-                                           <option key={spec} value={spec}>{spec}</option>
+                                           <option key={spec} value={spec} style={{ background: '#0a0b20' }}>{spec}</option>
                                          ))}
                                        </select>
 
@@ -3098,19 +3668,21 @@ export default function App() {
                                              handleDeleteCustomLesson(diseaseName, groupCards);
                                            }}
                                            style={{
-                                             background: 'rgba(239, 68, 68, 0.15)',
-                                             border: '1px solid rgba(239, 68, 68, 0.3)',
+                                             background: 'rgba(239, 68, 68, 0.12)',
+                                             border: '1px solid rgba(239, 68, 68, 0.25)',
                                              color: '#fca5a5',
-                                             padding: '0.3rem 0.6rem',
+                                             padding: '0.25rem 0.5rem',
                                              borderRadius: '8px',
                                              fontSize: '0.78rem',
                                              fontWeight: '600',
                                              cursor: 'pointer',
                                              transition: 'all 0.15s'
                                            }}
+                                           onMouseEnter={(e) => e.target.style.background = 'rgba(239, 68, 68, 0.25)'}
+                                           onMouseLeave={(e) => e.target.style.background = 'rgba(239, 68, 68, 0.12)'}
                                            title="Xóa bài lớn và tất cả các thẻ của bài này"
                                          >
-                                           🗑️ Xóa bài
+                                           Xóa bài
                                          </button>
                                        )}
                                      </div>
@@ -3118,7 +3690,7 @@ export default function App() {
 
                                    {/* Expanded Cards list inside theme accordion */}
                                    {hasCards && isExpanded && (
-                                     <div style={{ display: 'flex', flexDirection: 'column', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                     <div style={{ display: 'flex', flexDirection: 'column', borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.1)' }}>
                                        {groupCards.map((card, idx) => {
                                           const cardId = card._id || card.id;
                                           const cardNum = card.word.match(/\(Card\s*#(\d+)\)/i);
@@ -3132,7 +3704,7 @@ export default function App() {
                                           return (
                                             <div
                                               key={cardId}
-                                              className="library-large-card-compact"
+                                              className="quantum-card library-large-card-compact"
                                               onClick={() => {
                                                 setModalSessionCards(groupCards);
                                                 setModalStartIndex(idx);
@@ -3142,121 +3714,68 @@ export default function App() {
                                                 alignItems: 'center',
                                                 justifyContent: 'space-between',
                                                 gap: '1.2rem',
-                                                padding: '0.9rem 1.2rem',
-                                                margin: '0.6rem 1.2rem',
-                                                borderRadius: '12px',
+                                                padding: '1rem 1.4rem',
+                                                margin: '0.65rem 1.25rem',
+                                                borderRadius: '16px',
                                                 background: card.isLearned 
-                                                  ? 'rgba(16, 185, 129, 0.03)' 
-                                                  : 'rgba(15, 23, 42, 0.45)',
+                                                  ? 'rgba(16, 185, 129, 0.02)' 
+                                                  : 'rgba(8, 8, 16, 0.45)',
                                                 border: card.isLearned 
                                                   ? '1px solid rgba(16, 185, 129, 0.25)' 
-                                                  : '1px solid rgba(255, 255, 255, 0.07)',
+                                                  : '1px solid rgba(255, 255, 255, 0.04)',
                                                 borderLeft: `4px solid ${card.isLearned ? '#10b981' : '#6366f1'}`,
                                                 cursor: 'pointer',
                                                 boxShadow: card.isLearned 
-                                                  ? '0 4px 12px rgba(16, 185, 129, 0.04)' 
+                                                  ? '0 4px 12px rgba(16, 185, 129, 0.02)' 
                                                   : '0 4px 12px rgba(0, 0, 0, 0.15)',
                                                 backdropFilter: 'blur(8px)',
-                                                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                transition: 'all 0.25s ease-out',
                                               }}
-                                              onMouseEnter={(e) => {
-                                                e.currentTarget.style.background = card.isLearned 
-                                                  ? 'rgba(16, 185, 129, 0.08)' 
-                                                  : 'rgba(99, 102, 241, 0.07)';
-                                                e.currentTarget.style.borderColor = card.isLearned 
-                                                  ? 'rgba(16, 185, 129, 0.45)' 
-                                                  : 'rgba(99, 102, 241, 0.35)';
-                                                e.currentTarget.style.boxShadow = card.isLearned 
-                                                  ? '0 6px 20px rgba(16, 185, 129, 0.15)' 
-                                                  : '0 6px 20px rgba(99, 102, 241, 0.15)';
-                                                e.currentTarget.style.transform = 'translateY(-2px) translateX(3px)';
-                                              }}
-                                              onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = card.isLearned 
-                                                  ? 'rgba(16, 185, 129, 0.03)' 
-                                                  : 'rgba(15, 23, 42, 0.45)';
-                                                e.currentTarget.style.borderColor = card.isLearned 
-                                                  ? 'rgba(16, 185, 129, 0.25)' 
-                                                  : '1px solid rgba(255, 255, 255, 0.07)';
-                                                e.currentTarget.style.boxShadow = card.isLearned 
-                                                  ? '0 4px 12px rgba(16, 185, 129, 0.04)' 
-                                                  : '0 4px 12px rgba(0, 0, 0, 0.15)';
-                                                e.currentTarget.style.transform = 'none';
-                                               }}
-                                             >
-                                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: 0 }}>
-                                                 <span style={{
-                                                   fontSize: '0.7rem',
-                                                   fontWeight: '700',
-                                                   background: card.isLearned ? 'rgba(16, 185, 129, 0.12)' : 'rgba(99, 102, 241, 0.1)',
-                                                   color: card.isLearned ? '#34d399' : '#a5b4fc',
-                                                   border: `1px solid ${card.isLearned ? 'rgba(16, 185, 129, 0.25)' : 'rgba(99, 102, 241, 0.25)'}`,
-                                                   borderRadius: '20px',
-                                                   padding: '0.2rem 0.6rem',
-                                                   whiteSpace: 'nowrap',
-                                                   flexShrink: 0
-                                                 }}>
-                                                   Card #${num}
-                                                 </span>
-                                                 {card.isLearned ? (
-                                                   <span style={{ fontSize: '0.65rem', fontWeight: '600', color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '0.15rem 0.4rem', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>Đã thuộc</span>
-                                                 ) : (
-                                                   <span style={{ fontSize: '0.65rem', fontWeight: '600', color: '#fca5a5', background: 'rgba(239, 68, 68, 0.15)', padding: '0.15rem 0.4rem', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>Chưa thuộc</span>
-                                                 )}
-                                                 <span style={{
-                                                   fontSize: '0.85rem',
-                                                   color: card.isLearned ? '#a7f3d0' : 'rgba(255, 255, 255, 0.85)',
-                                                   overflow: 'hidden',
-                                                   textOverflow: 'ellipsis',
-                                                   display: '-webkit-box',
-                                                   WebkitLineClamp: 2,
-                                                   WebkitBoxOrient: 'vertical',
-                                                   lineHeight: '1.4',
-                                                   fontWeight: '500'
-                                                 }}>
-                                                   {preview}
-                                                 </span>
-                                               </div>
-                                               
-                                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexShrink: 0 }}>
-                                                 <div
-                                                   onClick={(e) => { e.stopPropagation(); handleUpdateSingleCard(cardId, !card.isLearned); }}
-                                                   style={{
-                                                     width: '22px',
-                                                     height: '22px',
-                                                     borderRadius: '50%',
-                                                     border: card.isLearned ? '2px solid #10b981' : '2px solid rgba(255,255,255,0.35)',
-                                                     background: card.isLearned ? '#10b981' : 'rgba(255,255,255,0.03)',
-                                                     display: 'flex',
-                                                     alignItems: 'center',
-                                                     justifyContent: 'center',
-                                                     cursor: 'pointer',
-                                                     color: 'white',
-                                                     fontWeight: '800',
-                                                     fontSize: '0.75rem',
-                                                     transition: 'all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                                                     boxShadow: card.isLearned ? '0 0 10px rgba(16, 185, 129, 0.5)' : 'none',
-                                                   }}
-                                                   onMouseEnter={(e) => {
-                                                     e.currentTarget.style.transform = 'scale(1.15)';
-                                                     if (!card.isLearned) {
-                                                       e.currentTarget.style.borderColor = '#6366f1';
-                                                       e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)';
-                                                     }
-                                                   }}
-                                                   onMouseLeave={(e) => {
-                                                     e.currentTarget.style.transform = 'scale(1)';
-                                                     if (!card.isLearned) {
-                                                       e.currentTarget.style.borderColor = 'rgba(255,255,255,0.35)';
-                                                       e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
-                                                     }
-                                                   }}
-                                                   title={card.isLearned ? 'Đánh dấu chưa thuộc' : 'Đánh dấu đã thuộc'}
-                                                 >
-                                                   {card.isLearned ? '✓' : ''}
-                                                 </div>
-                                               </div>
-                                             </div>
+                                            >
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: 0 }}>
+                                                <span style={{
+                                                  fontSize: '0.7rem',
+                                                  fontWeight: '700',
+                                                  background: card.isLearned ? 'rgba(16, 185, 129, 0.12)' : 'rgba(99, 102, 241, 0.1)',
+                                                  color: card.isLearned ? '#34d399' : '#a5b4fc',
+                                                  border: `1px solid ${card.isLearned ? 'rgba(16, 185, 129, 0.25)' : 'rgba(99, 102, 241, 0.25)'}`,
+                                                  borderRadius: '20px',
+                                                  padding: '0.2rem 0.6rem',
+                                                  whiteSpace: 'nowrap',
+                                                  flexShrink: 0
+                                                }}>
+                                                  Card #${num}
+                                                </span>
+                                                {card.isLearned ? (
+                                                  <span style={{ fontSize: '0.65rem', fontWeight: '700', color: '#10b981', background: 'rgba(16, 185, 129, 0.12)', padding: '0.15rem 0.45rem', borderRadius: '6px', whiteSpace: 'nowrap', flexShrink: 0 }}>Đã thuộc</span>
+                                                ) : (
+                                                  <span style={{ fontSize: '0.65rem', fontWeight: '700', color: '#f87171', background: 'rgba(239, 68, 68, 0.12)', padding: '0.15rem 0.45rem', borderRadius: '6px', whiteSpace: 'nowrap', flexShrink: 0 }}>Chưa thuộc</span>
+                                                )}
+                                                <span style={{
+                                                  fontSize: '0.85rem',
+                                                  color: card.isLearned ? '#a7f3d0' : 'rgba(255, 255, 255, 0.85)',
+                                                  overflow: 'hidden',
+                                                  textOverflow: 'ellipsis',
+                                                  display: '-webkit-box',
+                                                  WebkitLineClamp: 2,
+                                                  WebkitBoxOrient: 'vertical',
+                                                  lineHeight: '1.4',
+                                                  fontWeight: '550'
+                                                }}>
+                                                  {preview}
+                                                </span>
+                                              </div>
+                                              
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexShrink: 0 }}>
+                                                <div
+                                                  onClick={(e) => { e.stopPropagation(); handleUpdateSingleCard(cardId, !card.isLearned); }}
+                                                  className={`cyber-checkbox ${card.isLearned ? 'checked-emerald' : ''}`}
+                                                  title={card.isLearned ? 'Đánh dấu chưa thuộc' : 'Đánh dấu đã thuộc'}
+                                                >
+                                                  {card.isLearned ? '✓' : ''}
+                                                </div>
+                                              </div>
+                                            </div>
                                           );
                                         })}
                                      </div>
@@ -3289,13 +3808,34 @@ export default function App() {
                                 const cardId = card._id || card.id;
                                 const globalIndex = (libCurrentPage - 1) * itemsPerPage + index;
                                 return (
-                                  <div key={cardId} style={{ background: 'var(--glass-bg)', border: '1px solid var(--glass-border)', borderRadius: '16px', padding: '1.2rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'all 0.2s', cursor: 'pointer' }} className="library-large-card-compact"
-                                    onClick={() => { setModalSessionCards(filteredLibraryCards); setModalStartIndex(globalIndex); }}>
+                                  <div key={cardId} className="quantum-card library-large-card-compact"
+                                    onClick={() => { setModalSessionCards(filteredLibraryCards); setModalStartIndex(globalIndex); }}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      padding: '1.1rem 1.4rem',
+                                      background: card.isLearned ? 'rgba(16, 185, 129, 0.02)' : 'rgba(8, 8, 16, 0.45)',
+                                      border: card.isLearned ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(255, 255, 255, 0.04)',
+                                      borderLeft: `3px solid ${card.isLearned ? '#10b981' : '#6366f1'}`,
+                                      borderRadius: '16px',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.25s ease-out'
+                                    }}
+                                  >
                                     <div style={{ maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                                      <h4 style={{ fontSize: '1.08rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.word.split('(')[0].split(',')[0].trim()}</h4>
-                                      <span style={{ fontSize: '0.78rem', color: '#a5b4fc', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getCardSubTopic(card)}</span>
+                                      <h4 style={{ fontSize: '1.05rem', fontFamily: 'var(--font-display)', fontWeight: '750', color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {card.word.split('(')[0].split(',')[0].trim()}
+                                      </h4>
+                                      <span style={{ fontSize: '0.75rem', color: '#a5b4fc', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {getCardSubTopic(card)}
+                                      </span>
                                     </div>
-                                    <div onClick={(e) => { e.stopPropagation(); handleUpdateSingleCard(cardId, !card.isLearned); }} style={{ width: '24px', height: '24px', borderRadius: '6px', border: card.isLearned ? '1.5px solid var(--status-learned)' : '1.5px solid var(--text-muted)', background: card.isLearned ? 'rgba(16,185,129,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--status-learned)', fontWeight: '900', fontSize: '0.95rem', transition: 'all 0.15s' }} title={card.isLearned ? 'Đã học' : 'Chưa học'}>
+                                    <div 
+                                      onClick={(e) => { e.stopPropagation(); handleUpdateSingleCard(cardId, !card.isLearned); }} 
+                                      className={`cyber-checkbox ${card.isLearned ? 'checked-indigo' : ''}`}
+                                      title={card.isLearned ? 'Đã học' : 'Chưa học'}
+                                    >
                                       {card.isLearned ? '✓' : ''}
                                     </div>
                                   </div>
@@ -3335,35 +3875,52 @@ export default function App() {
               
               {/* Header with Title */}
               <div style={{
-                padding: '2rem',
-                background: 'var(--bg-tertiary)',
+                padding: '1.2rem 2rem',
+                background: 'rgba(5, 6, 12, 0.6)',
+                backdropFilter: 'blur(20px)',
                 borderBottom: '1px solid var(--glass-border)',
                 display: 'flex',
                 justifyContent: 'space-between',
-                alignItems: 'center'
+                alignItems: 'center',
+                position: 'relative'
               }}>
-                <div>
-                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.8rem', fontWeight: '800', color: 'white' }}>
-                    Lịch sử ôn tập (History)
-                  </h2>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                    Hiển thị tối đa 30 từ vựng bạn vừa ôn tập gần đây. Nhấp vào từ để xem chi tiết hoặc ôn lại.
-                  </p>
+                {/* Decorative accent top bar */}
+                <div 
+                  className={`absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r ${selectedModule === 2 ? 'from-emerald-500 to-cyan-500 shadow-[0_0_8px_#10b981]' : 'from-indigo-500 to-purple-500 shadow-[0_0_8px_#6366f1]'}`} 
+                />
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <History className={`w-5 h-5 ${selectedModule === 2 ? 'text-emerald-400' : 'text-indigo-400'}`} />
+                  <div>
+                    <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: '850', color: 'white', margin: 0 }}>
+                      Lịch sử ôn tập
+                    </h2>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.1rem', margin: 0 }}>
+                      Hiển thị tối đa 30 từ vựng bạn vừa ôn tập gần đây. Nhấp vào từ để ôn lại.
+                    </p>
+                  </div>
                 </div>
+
                 <button 
                   onClick={() => setRightPanelMode('worten')}
                   style={{
-                    background: 'var(--bg-primary)',
+                    background: 'rgba(255,255,255,0.03)',
                     border: '1px solid var(--glass-border)',
-                    color: 'var(--text-primary)',
-                    padding: '0.5rem 1rem',
-                    borderRadius: '8px',
+                    color: 'var(--text-secondary)',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '10px',
                     cursor: 'pointer',
                     fontSize: '0.8rem',
-                    fontWeight: '600'
+                    fontWeight: '700',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    transition: 'all 0.2s'
                   }}
+                  onMouseEnter={(e) => e.target.style.color = 'white'}
+                  onMouseLeave={(e) => e.target.style.color = 'var(--text-secondary)'}
                 >
-                  ✕ Đóng lịch sử
+                  <ArrowLeft className="w-4 h-4" /> <span>Quay lại</span>
                 </button>
               </div>
 
@@ -3373,56 +3930,57 @@ export default function App() {
                 overflowY: 'auto',
                 padding: '2rem',
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
                 gap: '1.2rem',
                 alignContent: 'start'
               }} className="library-large-list">
                 
                 {studyHistory.length === 0 ? (
-                  <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
-                    <span style={{ fontSize: '3rem', display: 'block', marginBottom: '1rem' }}>🕒</span>
-                    <h3>Chưa có từ vựng nào trong lịch sử</h3>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                  <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '5rem 2rem', color: 'var(--text-muted)' }}>
+                    <span style={{ fontSize: '3.5rem', display: 'block', marginBottom: '1rem' }}>🕒</span>
+                    <h3 style={{ color: 'white', fontWeight: '700', fontSize: '1.1rem' }}>Chưa có từ vựng nào trong lịch sử</h3>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
                       Hãy hoàn thành một phiên học flashcard để các từ học được lưu lại tại đây.
                     </p>
                   </div>
                 ) : (
                   studyHistory.map((card, index) => {
                     const cardId = card._id || card.id;
+                    const isLearned = card.isLearned;
                     return (
                       <div
                         key={cardId}
+                        className="quantum-card library-large-card-compact"
                         style={{
-                          background: 'var(--glass-bg)',
-                          border: '1px solid var(--glass-border)',
-                          borderRadius: '16px',
-                          padding: '1.2rem 1.5rem',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          position: 'relative',
-                          transition: 'all 0.2s',
-                          cursor: 'pointer'
+                          padding: '1.1rem 1.4rem',
+                          background: isLearned ? 'rgba(16, 185, 129, 0.02)' : 'rgba(8, 8, 16, 0.45)',
+                          border: isLearned ? '1px solid rgba(16, 185, 129, 0.25)' : '1px solid rgba(255, 255, 255, 0.04)',
+                          borderLeft: `3px solid ${isLearned ? '#10b981' : '#6366f1'}`,
+                          borderRadius: '16px',
+                          cursor: 'pointer',
+                          transition: 'all 0.25s ease-out'
                         }}
-                        className="library-large-card-compact"
                         onClick={() => {
                           setModalSessionCards(studyHistory);
                           setModalStartIndex(index);
                         }}
                       >
                         <div style={{ maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                          <h4 style={{ fontSize: '1.08rem', fontFamily: 'var(--font-display)', fontWeight: '700', color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={card.word}>
+                          <h4 style={{ fontSize: '1.05rem', fontFamily: 'var(--font-display)', fontWeight: '750', color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={card.word}>
                             {card.word.split('(')[0].split(',')[0].trim()}
                           </h4>
-                          <span style={{ fontSize: '0.78rem', color: '#a5b4fc', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: '0.75rem', color: '#a5b4fc', fontWeight: '650', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {getCardSubTopic(card)}
                           </span>
-                          <span style={{ alignSelf: 'flex-start', fontSize: '0.6rem', color: 'var(--text-muted)', background: 'rgba(255, 255, 255, 0.03)', padding: '0.05rem 0.35rem', borderRadius: '4px', marginTop: '0.1rem' }}>
+                          <span style={{ alignSelf: 'flex-start', fontSize: '0.62rem', fontWeight: '700', color: selectedModule === 2 ? '#34d399' : '#a5b4fc', background: selectedModule === 2 ? 'rgba(16,185,129,0.1)' : 'rgba(99,102,241,0.1)', padding: '0.1rem 0.45rem', borderRadius: '4px', marginTop: '0.2rem', textTransform: 'uppercase', tracking: '0.5px' }}>
                             {card.category === 'General' ? 'Tiếng Đức' : card.category}
                           </span>
                         </div>
 
-                        {/* Direct Tick checkbox — FIX: use correct user-scoped localStorage key */}
+                        {/* Direct Tick checkbox */}
                         <div
                           onClick={(e) => {
                             e.stopPropagation();
@@ -3436,24 +3994,10 @@ export default function App() {
                               return updated;
                             });
                           }}
-                          style={{
-                            width: '24px',
-                            height: '24px',
-                            borderRadius: '6px',
-                            border: card.isLearned ? '1.5px solid var(--status-learned)' : '1.5px solid var(--text-muted)',
-                            background: card.isLearned ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            color: 'var(--status-learned)',
-                            fontWeight: '900',
-                            fontSize: '0.95rem',
-                            transition: 'all 0.15s'
-                          }}
-                          title={card.isLearned ? "Đã học (Bấm để hủy đánh dấu)" : "Chưa học (Bấm để đánh dấu đã học)"}
+                          className={`cyber-checkbox ${isLearned ? (selectedModule === 2 ? 'checked-emerald' : 'checked-indigo') : ''}`}
+                          title={isLearned ? "Đã học (Bấm để hủy đánh dấu)" : "Chưa học (Bấm để đánh dấu đã học)"}
                         >
-                          {card.isLearned ? '✓' : ''}
+                          {isLearned ? '✓' : ''}
                         </div>
 
                       </div>
@@ -4103,11 +4647,42 @@ export default function App() {
           transform: rotate(-10deg) scale(0.88) !important;
         }
       `}</style>
-
       {/* Anki Toast Notifications */}
       <AnkiToast toasts={ankiToasts} />
 
     </div>
+  );
+}
 
+function MusicToggleButton({ isMusicPlaying, toggleMusic, inline = false }) {
+  return (
+    <div className={inline ? "select-none flex items-center" : "fixed top-6 right-6 z-[9999] select-none"}>
+      <style>{`
+        @keyframes bar-rise {
+          0% { height: 20%; }
+          100% { height: 100%; }
+        }
+      `}</style>
+      <button
+        onClick={toggleMusic}
+        className="flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[#040407]/45 border border-stone-850 backdrop-blur-md text-stone-400 hover:text-white hover:border-stone-700 hover:shadow-[0_0_15px_rgba(16,185,129,0.15)] active:scale-[0.97] transition-all duration-300 cursor-pointer"
+      >
+        {isMusicPlaying ? (
+          <>
+            <Volume2 className="w-4 h-4 text-emerald-450" />
+            <div className="flex items-end gap-[2px] h-3 w-3.5 mb-[1px]">
+              <span className="w-[2px] bg-emerald-450 rounded-full" style={{ animation: 'bar-rise 0.8s ease-in-out infinite alternate', animationDelay: '0.1s' }} />
+              <span className="w-[2px] bg-emerald-450 rounded-full" style={{ animation: 'bar-rise 1.1s ease-in-out infinite alternate', animationDelay: '0.3s' }} />
+              <span className="w-[2px] bg-emerald-450 rounded-full" style={{ animation: 'bar-rise 0.9s ease-in-out infinite alternate', animationDelay: '0s' }} />
+            </div>
+          </>
+        ) : (
+          <>
+            <VolumeX className="w-4 h-4 text-stone-500" />
+            <span className="text-[9px] uppercase tracking-wider text-stone-500 font-mono font-semibold">MUTED</span>
+          </>
+        )}
+      </button>
+    </div>
   );
 }

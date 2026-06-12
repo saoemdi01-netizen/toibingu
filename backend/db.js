@@ -14,6 +14,7 @@ const CardSchema = new mongoose.Schema({
   word: { type: String, required: true },
   translation: { type: String, required: true },
   example: { type: String, required: true },
+  exampleTranslation: { type: String }, // Vietnamese translation of the example sentence
   category: { type: String, required: true }, // e.g. "General", "Innere Medizin", etc.
   module: { type: Number, required: true },
   isLearned: { type: Boolean, default: false },

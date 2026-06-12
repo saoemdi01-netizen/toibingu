@@ -1,9 +1,9 @@
 /* --- Custom Premium Design System --- */
 
 :root {
-  --bg-primary: #030712;      /* Obsidian Deep Space Black */
-  --bg-secondary: #0b0f19;    /* Midnight Blue-Gray */
-  --bg-tertiary: #151b2a;     /* Deep Slate Card Contrast */
+  --bg-primary: #020204;      /* Obsidian Deep Space Black */
+  --bg-secondary: rgba(6, 6, 12, 0.45);    /* Midnight Glass Black */
+  --bg-tertiary: rgba(20, 20, 30, 0.6);     /* Deep Slate Card Contrast */
   --accent-primary: #6366f1; /* Indigo */
   --accent-secondary: #3b82f6; /* Blue */
   --accent-glow: rgba(99, 102, 241, 0.15);
@@ -19,8 +19,8 @@
   
   --status-learned: #10b981; /* Emerald */
   --status-unlearned: #ef4444; /* Rose */
-  --glass-border: rgba(255, 255, 255, 0.06);
-  --glass-bg: rgba(18, 20, 32, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.04);
+  --glass-bg: rgba(4, 4, 7, 0.45);
   --glass-hover: rgba(255, 255, 255, 0.03);
   
   --font-display: 'Plus Jakarta Sans', 'Be Vietnam Pro', sans-serif;
@@ -44,8 +44,8 @@ body {
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: var(--bg-primary);
@@ -55,7 +55,7 @@ body {
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-primary);
+  background: var(--accent-active-color);
 }
 
 /* App Container Layout */
@@ -63,9 +63,12 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background-color: #020204;
   background-image: 
-    radial-gradient(at 0% 0%, var(--accent-active-glow) 0px, transparent 55%),
-    radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.08) 0px, transparent 55%);
+    radial-gradient(at 0% 0%, var(--accent-active-glow) 0px, transparent 60%),
+    radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.04) 0px, transparent 60%),
+    radial-gradient(#ffffff03 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 28px 28px;
   transition: var(--transition-smooth);
 }
 
@@ -75,8 +78,8 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 1rem 2rem;
-  background: var(--glass-bg);
-  backdrop-filter: blur(12px);
+  background: rgba(2, 2, 4, 0.6);
+  backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--glass-border);
   z-index: 10;
 }
@@ -281,8 +284,9 @@ body {
 .sidebar-panel {
   width: 420px;
   min-width: 420px;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--glass-border);
+  background: rgba(4, 4, 7, 0.4) !important;
+  backdrop-filter: blur(25px);
+  border-right: 1px solid rgba(255, 255, 255, 0.02) !important;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -516,7 +520,8 @@ body {
 /* Right Content Area */
 .content-area {
   flex: 1;
-  background: var(--bg-primary);
+  background: #020204;
+  background-image: radial-gradient(circle at center, rgba(255, 255, 255, 0.01) 0%, transparent 80%);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -524,6 +529,20 @@ body {
   padding: 2rem;
   position: relative;
   overflow: hidden;
+}
+
+.content-area::after {
+  content: '';
+  position: absolute;
+  bottom: -150px;
+  width: 650px;
+  height: 300px;
+  background: radial-gradient(ellipse at center, var(--accent-active-glow) 0%, transparent 75%);
+  border-radius: 50%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.8;
+  filter: blur(50px);
 }
 
 /* Flashcard Player */
@@ -555,34 +574,44 @@ body {
   width: 100%;
   height: 100%;
   backface-visibility: hidden;
-  border-radius: 24px;
-  padding: 1.5rem 2rem;
+  border-radius: 28px;
+  padding: 2rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  /* No overflow:hidden so inner scroll works */
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-face:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 40px 80px rgba(0, 0, 0, 0.75), 0 0 35px var(--accent-active-glow);
 }
 
 /* Front Face */
 .card-front {
-  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+  background: radial-gradient(circle at center, var(--accent-active-glow-soft) 0%, rgba(3, 3, 5, 0.98) 80%) !important;
   color: var(--text-primary);
 }
 
 /* Back Face - original, untouched for General vocab */
 .card-back {
-  background: linear-gradient(135deg, var(--bg-secondary) 0%, #12182c 100%);
+  background: radial-gradient(circle at center, var(--accent-active-glow-soft) 0%, rgba(3, 3, 5, 0.98) 85%) !important;
   color: var(--text-primary);
   transform: rotateY(180deg);
 }
 
 /* Clinical-only back face overrides — Module 2 Y khoa only */
 .card-back-clinical {
-  background: linear-gradient(160deg, #0f1628 0%, #121c35 50%, #0a1220 100%);
-  border: 1px solid rgba(74, 222, 128, 0.12);
-  box-shadow: 0 20px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+  background: radial-gradient(circle at center, rgba(16, 185, 129, 0.03) 0%, rgba(2, 4, 3, 0.98) 85%) !important;
+  border: 1px solid rgba(16, 185, 129, 0.1) !important;
+  box-shadow: 0 30px 65px rgba(0, 0, 0, 0.7), 0 0 40px rgba(16, 185, 129, 0.02) !important;
+}
+
+.card-back-clinical:hover {
+  border-color: rgba(16, 185, 129, 0.25) !important;
+  box-shadow: 0 40px 80px rgba(0, 0, 0, 0.75), 0 0 45px rgba(16, 185, 129, 0.15) !important;
 }
 
 /* Card Controls */
@@ -1437,3 +1466,179 @@ button:active,
   animation: h-led-wave 3.8s ease-in-out infinite;
   animation-delay: 3.1s;
 }
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Story scroll behavior classes */
+.story-scroll-container {
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  height: 100%;
+  width: 100%;
+  scroll-behavior: smooth;
+}
+
+.story-scroll-item {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  height: 100%;
+  width: 100%;
+  position: relative;
+}
+
+/* --- Space & Holographic Overhaul System --- */
+.cyber-panel-glass {
+  background: rgba(6, 6, 12, 0.75);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+.glow-indigo-pulse {
+  box-shadow: 0 0 15px rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.5) !important;
+}
+
+.glow-emerald-pulse {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.5) !important;
+}
+
+/* Custom interactive pill buttons */
+.cyber-pill-toggle {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cyber-pill-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+.cyber-pill-toggle.active-indigo {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: #6366f1;
+  color: white;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
+}
+.cyber-pill-toggle.active-emerald {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: #10b981;
+  color: white;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+/* Floating quantum cards */
+.quantum-card {
+  background: rgba(8, 8, 16, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.quantum-card:hover {
+  background: rgba(15, 15, 27, 0.65);
+  border-color: var(--accent-active-color);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 15px var(--accent-active-glow-soft);
+  transform: translateY(-2px);
+}
+
+/* Navigation items in sidebar */
+.nav-capsule {
+  position: relative;
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 1.25rem;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+.nav-capsule::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15%;
+  height: 70%;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: transparent;
+  transition: all 0.25s ease;
+}
+.nav-capsule:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+  transform: translateX(4px);
+}
+.nav-capsule.active-indigo {
+  background: linear-gradient(135deg, rgba(20, 20, 35, 0.8) 0%, rgba(99, 102, 241, 0.06) 100%);
+  border-color: rgba(99, 102, 241, 0.3);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 15px rgba(99, 102, 241, 0.08);
+}
+.nav-capsule.active-indigo::before {
+  background: #6366f1;
+  box-shadow: 0 0 8px #6366f1;
+}
+.nav-capsule.active-emerald {
+  background: linear-gradient(135deg, rgba(20, 20, 35, 0.8) 0%, rgba(16, 185, 129, 0.06) 100%);
+  border-color: rgba(16, 185, 129, 0.3);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 15px rgba(16, 185, 129, 0.08);
+}
+.nav-capsule.active-emerald::before {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+/* Custom premium checkboxes */
+.cyber-checkbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.cyber-checkbox.checked-indigo {
+  background: #6366f1;
+  border-color: #6366f1;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+}
+.cyber-checkbox.checked-emerald {
+  background: #10b981;
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+/* Accent light glow animation */
+@keyframes neon-pulse-cyan {
+  0%, 100% { box-shadow: 0 0 10px rgba(6, 182, 212, 0.15); }
+  50% { box-shadow: 0 0 20px rgba(6, 182, 212, 0.35); }
+}
+.pulse-cyan-glow {
+  animation: neon-pulse-cyan 3s infinite ease-in-out;
+}
+
