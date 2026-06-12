@@ -265,7 +265,7 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
         <div className={`flashcard-deck ${isFlipped ? 'flipped' : ''}`} onClick={() => setIsFlipped(!isFlipped)}>
           
           {/* FRONT FACE */}
-          <div className="card-face card-front relative flex flex-col justify-between p-8">
+          <div className="card-face card-front absolute top-0 left-0 w-full h-full flex flex-col justify-between p-8">
             <span className="category-tag self-start">{currentCard.category}</span>
             
             <div className="card-main-content w-full flex flex-col items-center justify-center text-center my-auto">
@@ -295,7 +295,7 @@ export default function FlashcardPlayer({ cards, startIndex = 0, onSaveSessionSt
           </div>
 
           {/* BACK FACE */}
-          <div className={`card-face card-back ${currentCard.category !== 'General' ? 'card-back-clinical' : ''} relative flex flex-col justify-between p-8`}>
+          <div className={`card-face card-back ${currentCard.category !== 'General' ? 'card-back-clinical' : ''} absolute top-0 left-0 w-full h-full flex flex-col justify-between p-8`}>
             <span className="category-tag self-start">{currentCard.category}</span>
             
             <div className="card-main-content flex-1 w-full flex flex-col justify-center gap-4 my-auto overflow-y-auto no-scrollbar pr-1">
